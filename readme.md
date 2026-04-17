@@ -170,6 +170,7 @@ Computed in `get_stock_data.py` on the full OHLCV history and stored in each Par
 
 Each function signature: `strategy(df: pd.DataFrame) → (triggered: bool, description: str)`
 
+<!--
 ### 1 · MA Pullback
 Trend-following entry on a pullback to the 20-day MA.
 
@@ -222,7 +223,7 @@ Example:
 Entry at $100
 Stop  = $92   (entry − 1.5×ATR)   ← price drops here → sell immediately, no debate
 Exit  = price closes below MA20    ← trend weakening → sell even if still profitable
-
+-->
 ---
 
 ## News discovery (`information.py`)
