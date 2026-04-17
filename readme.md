@@ -2,7 +2,7 @@
 
 Automated daily stock screening system. Pulls price data for ~330 US equities, computes technical indicators, runs five trading strategies, discovers new tickers from financial news, and saves every signal to a timestamped report.
 
-## Main delevoper: Aurora
+## Main developer: Aurora
 
 ---
 
@@ -216,6 +216,12 @@ DIF / DEA crossover above the zero line.
 | Entry | DIF crosses above DEA AND both DIF > 0 AND DEA > 0 |
 | Stop | close below MA20 |
 | Exit | DIF crosses below DEA |
+
+Example: 
+
+Entry at $100
+Stop  = $92   (entry − 1.5×ATR)   ← price drops here → sell immediately, no debate
+Exit  = price closes below MA20    ← trend weakening → sell even if still profitable
 
 ---
 
