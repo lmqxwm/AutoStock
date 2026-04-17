@@ -1,0 +1,36 @@
+# API keys — never commit these
+keys.txt
+keys.py
+
+# Price data cache (large binary files, regenerated on first run)
+data/
+
+# Alarm reports (personal output files)
+alarms/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Jupyter checkpoints
+.ipynb_checkpoints/
+*/.ipynb_checkpoints/
+
+# Virtual environments
+.venv/
+venv/
+env/
+.env
+
+# macOS
+.DS_Store
+
+# Logs
+logs/
+*.log
