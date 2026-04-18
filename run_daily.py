@@ -65,13 +65,15 @@ def run(no_news: bool = False,
 
     # ── Step 1: News discovery ────────────────────────────────────────────────
     newly_added: list[str] = []
+    ticker_news: dict[str, str] = {}   # ticker → latest headline
     if not no_news:
         print("[ 1/5 ] News discovery …")
-        newly_added = run_news_discovery(alarm_path=None)   # alarm appended later
+        newly_added, ticker_news = run_news_discovery(alarm_path=None)
         if newly_added:
             print(f"        + {len(newly_added)} new ticker(s): {newly_added}")
         else:
             print("        No new tickers from news.")
+        print(f"        {len(ticker_news)} tickers have recent headlines.")
     else:
         print("[ 1/5 ] News discovery skipped (--no-news).")
 
@@ -139,7 +141,11 @@ def run(no_news: bool = False,
             for r in subset:
                 data_date = latest_dates.get(r["Symbol"], "?")
                 print(f"    {r['Symbol']:8s} [data thru {data_date}]")
-                print(f"    {r['Signal']}\n")
+                print(f"    {r['Signal']}")
+                headline = ticker_news.get(r["Symbol"])
+                if headline:
+                    print(f"    News: {headline}")
+                print()
 
     # ── Step 5: Write alarm file ──────────────────────────────────────────────
     with open(alarm_path, "w", encoding="utf-8") as f:
@@ -161,7 +167,11 @@ def run(no_news: bool = False,
                 for r in subset:
                     data_date = latest_dates.get(r["Symbol"], "?")
                     f.write(f"  {r['Symbol']:8s} (data thru {data_date})\n")
-                    f.write(f"  {r['Signal']}\n\n")
+                    f.write(f"  {r['Signal']}\n")
+                    headline = ticker_news.get(r["Symbol"])
+                    if headline:
+                        f.write(f"  News: {headline}\n")
+                    f.write("\n")
 
         # News section
         if newly_added:

@@ -126,14 +126,15 @@ def ma_pullback(df: pd.DataFrame) -> tuple[bool, str]:
     if not volume_ok:
         return False, f"Volume not sufficient ({volume:,.0f} vs 1.2×avg {1.2*vol_ma:,.0f})"
 
-    stop_loss = close - 1.5 * _safe_get(df, "ATR14") if not np.isnan(_safe_get(df, "ATR14")) else "N/A"
-    sl_str = f"{stop_loss:.2f}" if isinstance(stop_loss, float) else stop_loss
+    atr14 = _safe_get(df, "ATR14")
+    stop_loss = close - 1.5 * atr14 if not np.isnan(atr14) else None
+    sl_str = f"{stop_loss:.2f}" if stop_loss is not None else "N/A"
     return (
         True,
         f"[MA Pullback] Price={close:.2f} pulled back to MA20={ma20:.2f}, "
         f"bullish close, momentum confirmed (RSI={rsi:.1f}), "
         f"volume {volume:,.0f} ≥ 1.2×avg. "
-        f"Suggested stop={sl_str}, trail exit below MA20."
+        f"Stop: {sl_str}  |  Exit: trail below MA20={ma20:.2f}"
     )
 
 
@@ -189,14 +190,13 @@ def bollinger_rsi_mean_reversion(df: pd.DataFrame) -> tuple[bool, str]:
     if not closed_inside:
         return False, "Price did not close back above lower BB"
 
-    stop = bb_lower - atr if not np.isnan(atr) else "N/A"
-    stop_str = f"{stop:.2f}" if isinstance(stop, float) else stop
+    stop = bb_lower - atr if not np.isnan(atr) else None
+    stop_str = f"{stop:.2f}" if stop is not None else "N/A"
     return (
         True,
         f"[Bollinger+RSI MeanRev] Price={close:.2f} bounced from BB_lower={bb_lower:.2f}, "
         f"RSI={rsi:.1f} (oversold), volume decreasing. "
-        f"Target: BB_mid={bb_mid:.2f} or BB_upper={bb_upper:.2f}. "
-        f"Stop: {stop_str}."
+        f"Stop: {stop_str}  |  Exit: BB_mid={bb_mid:.2f} or BB_upper={bb_upper:.2f}"
     )
 
 
@@ -241,14 +241,14 @@ def trend_pullback_momentum(df: pd.DataFrame) -> tuple[bool, str]:
         return False, f"No volume spike ({volume:,.0f} ≤ avg {vol_ma:,.0f})"
 
     atr = _safe_get(df, "ATR14")
-    stop = close - 1.5 * atr if not np.isnan(atr) else "N/A"
-    stop_str = f"{stop:.2f}" if isinstance(stop, float) else stop
+    stop = close - 1.5 * atr if not np.isnan(atr) else None
+    stop_str = f"{stop:.2f}" if stop is not None else "N/A"
     return (
         True,
         f"[Trend+Pullback+Momentum] Price={close:.2f} above MA50={ma50:.2f}, "
         f"pulled back to MA20={ma20:.2f}, MACD histogram increasing ({hist:.4f}), "
         f"volume spike ({volume:,.0f} vs avg {vol_ma:,.0f}). "
-        f"Stop: {stop_str} (1.5×ATR below entry). Exit: close below MA20."
+        f"Stop: {stop_str}  |  Exit: close below MA20={ma20:.2f}"
     )
 
 
@@ -312,7 +312,7 @@ def golden_death_cross(df: pd.DataFrame) -> tuple[bool, str]:
         True,
         f"[Golden Cross BUY] MA50={ma50:.2f} just crossed ABOVE MA200={ma200:.2f}. "
         f"MA50 rising, {'volume increasing' if vol_up else 'MACD DIF > 0'}. "
-        f"Stop: {stop:.2f} (2% below MA200). Exit: MA50 crosses back below MA200."
+        f"Stop: {stop:.2f}  |  Exit: MA50 ({ma50:.2f}) crosses back below MA200 ({ma200:.2f})"
     )
 
 
@@ -358,7 +358,7 @@ def macd_trend_strategy(df: pd.DataFrame) -> tuple[bool, str]:
         True,
         f"[MACD Trend] Price={close:.2f} above MA50={ma50:.2f}. "
         f"DIF={dif:.4f} crossed above DEA={dea:.4f}, both positive. "
-        f"Stop: close below MA20={ma20:.2f}. Exit when DIF crosses below DEA."
+        f"Stop: {ma20:.2f} (MA20)  |  Exit: DIF ({dif:.4f}) crosses below DEA ({dea:.4f})"
     )
 
 

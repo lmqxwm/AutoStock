@@ -365,10 +365,29 @@ def append_news_to_alarm(alarm_path: Path, added_items: list[dict]) -> None:
 
 # ── Main entry point ──────────────────────────────────────────────────────────
 
-def run_news_discovery(alarm_path: Path | None = None,
-                       days: int = NEWS_DAYS) -> list[str]:
+def build_ticker_headlines(articles: list[dict]) -> dict[str, str]:
     """
-    Full pipeline. Returns list of newly added ticker symbols.
+    Build a mapping of ticker → most recent news headline from fetched articles.
+    Uses Marketaux entity tags so no extra API call is needed.
+    Only keeps the first (most recent) headline per ticker.
+    """
+    ticker_to_headline: dict[str, str] = {}
+    for art in articles:
+        title = art.get("title", "").strip()
+        if not title:
+            continue
+        for sym in art.get("entities_raw", []):
+            if sym not in ticker_to_headline:
+                ticker_to_headline[sym] = title
+    return ticker_to_headline
+
+
+def run_news_discovery(alarm_path: Path | None = None,
+                       days: int = NEWS_DAYS) -> tuple[list[str], dict[str, str]]:
+    """
+    Full pipeline.
+    Returns (newly_added_tickers, ticker_to_headline).
+    ticker_to_headline maps every ticker mentioned in recent news → its latest headline.
     """
     from tickers import get_tickers
     existing_all = set(get_tickers(include_etfs=True))
@@ -377,7 +396,7 @@ def run_news_discovery(alarm_path: Path | None = None,
     articles = fetch_recent_news(days=days)
     if not articles:
         logger.warning("No recent news articles returned from Marketaux.")
-        return []
+        return [], {}
 
     # 2. Collect Marketaux pre-labeled entity tickers (free, no LLM needed)
     entity_candidates: list[dict] = []
@@ -430,18 +449,22 @@ def run_news_discovery(alarm_path: Path | None = None,
     added_syms = update_tickers_py(validated)
     added_items = [v for v in validated if v["ticker"] in added_syms]
 
-    # 7. Write to alarm report
+    # 7. Build full ticker→headline map (covers all tickers in recent news,
+    #    not just newly discovered — used by alarm writer for existing tickers too)
+    ticker_headlines = build_ticker_headlines(articles)
+
+    # 8. Write to alarm report
     if alarm_path:
         append_news_to_alarm(alarm_path, added_items)
 
-    return added_syms
+    return added_syms, ticker_headlines
 
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s [%(levelname)s] %(message)s")
-    added = run_news_discovery()
+    added, _ = run_news_discovery()
     print(f"\n{'='*40}")
     print(f"Newly added to NEWS_DISCOVERED ({len(added)}):")
     for t in added:
