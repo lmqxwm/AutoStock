@@ -101,6 +101,7 @@ def fetch_recent_news(days: int = NEWS_DAYS,
                 "title"       : item.get("title", ""),
                 "snippet"     : (item.get("description") or item.get("snippet") or "")[:300],
                 "entities_raw": raw_entities,
+                "url"         : item.get("url", ""),
             })
 
         if len(articles) >= max_articles:
@@ -365,21 +366,91 @@ def append_news_to_alarm(alarm_path: Path, added_items: list[dict]) -> None:
 
 # ── Main entry point ──────────────────────────────────────────────────────────
 
-def build_ticker_headlines(articles: list[dict]) -> dict[str, str]:
+def build_ticker_headlines(articles: list[dict]) -> dict[str, dict]:
     """
-    Build a mapping of ticker → most recent news headline from fetched articles.
+    Build a mapping of ticker → {title, snippet, url} from fetched articles.
     Uses Marketaux entity tags so no extra API call is needed.
-    Only keeps the first (most recent) headline per ticker.
+    Only keeps the first (most recent) article per ticker.
     """
-    ticker_to_headline: dict[str, str] = {}
+    ticker_to_info: dict[str, dict] = {}
     for art in articles:
         title = art.get("title", "").strip()
         if not title:
             continue
         for sym in art.get("entities_raw", []):
-            if sym not in ticker_to_headline:
-                ticker_to_headline[sym] = title
-    return ticker_to_headline
+            if sym not in ticker_to_info:
+                ticker_to_info[sym] = {
+                    "title"  : title,
+                    "snippet": art.get("snippet", "").strip(),
+                    "url"    : art.get("url", "").strip(),
+                }
+    return ticker_to_info
+
+
+def _summarize_news(items: list[dict]) -> dict[str, str]:
+    """
+    Given [{ticker, title, snippet}, ...], ask the LLM to write one sentence
+    per ticker explaining why the news matters to the stock.
+    Tries Gemini first, falls back to Groq.
+    Returns {ticker: summary_sentence}.
+    """
+    if not items:
+        return {}
+
+    system = (
+        "You are a financial analyst. For each stock news item below, write ONE concise "
+        "sentence explaining the business or price impact on that specific company. "
+        "Return ONLY compact JSON — no markdown, no extra text.\n"
+        'Format: [{"ticker": "XXX", "summary": "one sentence here"}]'
+    )
+    lines = []
+    for it in items:
+        lines.append(f"TICKER: {it['ticker']}")
+        lines.append(f"Title: {it['title']}")
+        if it.get("snippet"):
+            lines.append(f"Snippet: {it['snippet'][:250]}")
+        lines.append("")
+    user_content = "News items:\n" + "\n".join(lines)
+
+    def _parse(text: str) -> dict[str, str]:
+        text = re.sub(r"^```(?:json)?\s*", "", text.strip())
+        text = re.sub(r"\s*```$", "", text)
+        parsed = json.loads(text)
+        return {d["ticker"]: d["summary"]
+                for d in parsed
+                if isinstance(d, dict) and "ticker" in d and "summary" in d}
+
+    # Try Gemini
+    if GEMINI_API_KEY and GEMINI_API_KEY.startswith("AIzaSy"):
+        try:
+            from google import genai
+            client = genai.Client(api_key=GEMINI_API_KEY)
+            resp = client.models.generate_content(
+                model="gemini-2.0-flash",
+                contents=system + "\n\n" + user_content,
+            )
+            return _parse(resp.text)
+        except Exception as e:
+            logger.warning(f"Gemini summary error: {e}")
+
+    # Try Groq
+    if GROQ_API_KEY:
+        try:
+            from groq import Groq
+            client = Groq(api_key=GROQ_API_KEY)
+            resp = client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user",   "content": user_content},
+                ],
+                temperature=0,
+            )
+            return _parse(resp.choices[0].message.content)
+        except Exception as e:
+            logger.warning(f"Groq summary error: {e}")
+
+    return {}
 
 
 def run_news_discovery(alarm_path: Path | None = None,
@@ -449,15 +520,29 @@ def run_news_discovery(alarm_path: Path | None = None,
     added_syms = update_tickers_py(validated)
     added_items = [v for v in validated if v["ticker"] in added_syms]
 
-    # 7. Build full ticker→headline map (covers all tickers in recent news,
-    #    not just newly discovered — used by alarm writer for existing tickers too)
-    ticker_headlines = build_ticker_headlines(articles)
+    # 7. Build full ticker → {title, snippet, url} map
+    ticker_info = build_ticker_headlines(articles)
 
-    # 8. Write to alarm report
+    # 8. LLM one-sentence summaries for newly discovered tickers only
+    if added_syms:
+        summary_inputs = [
+            {"ticker": t,
+             "title"  : ticker_info.get(t, {}).get("title", ""),
+             "snippet": ticker_info.get(t, {}).get("snippet", "")}
+            for t in added_syms
+            if ticker_info.get(t, {}).get("title")
+        ]
+        summaries = _summarize_news(summary_inputs)
+        for t, s in summaries.items():
+            if t in ticker_info:
+                ticker_info[t]["summary"] = s
+        logger.info(f"LLM summaries generated for {len(summaries)} new ticker(s).")
+
+    # 9. Write to alarm report
     if alarm_path:
         append_news_to_alarm(alarm_path, added_items)
 
-    return added_syms, ticker_headlines
+    return added_syms, ticker_info
 
 
 # ── CLI ───────────────────────────────────────────────────────────────────────

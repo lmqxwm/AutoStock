@@ -142,9 +142,9 @@ def run(no_news: bool = False,
                 data_date = latest_dates.get(r["Symbol"], "?")
                 print(f"    {r['Symbol']:8s} [data thru {data_date}]")
                 print(f"    {r['Signal']}")
-                headline = ticker_news.get(r["Symbol"])
-                if headline:
-                    print(f"    News: {headline}")
+                info = ticker_news.get(r["Symbol"], {})
+                if info.get("title"):
+                    print(f"    News: {info['title']}")
                 print()
 
     # ── Step 5: Write alarm file ──────────────────────────────────────────────
@@ -168,9 +168,9 @@ def run(no_news: bool = False,
                     data_date = latest_dates.get(r["Symbol"], "?")
                     f.write(f"  {r['Symbol']:8s} (data thru {data_date})\n")
                     f.write(f"  {r['Signal']}\n")
-                    headline = ticker_news.get(r["Symbol"])
-                    if headline:
-                        f.write(f"  News: {headline}\n")
+                    info = ticker_news.get(r["Symbol"], {})
+                    if info.get("title"):
+                        f.write(f"  News: {info['title']}\n")
                     f.write("\n")
 
         # News section
@@ -179,10 +179,14 @@ def run(no_news: bool = False,
             f.write("NEWS-DISCOVERED TICKERS\n")
             f.write("=" * 60 + "\n")
             for t in newly_added:
+                info = ticker_news.get(t, {})
                 f.write(f"  + {t}\n")
-                headline = ticker_news.get(t)
-                if headline:
-                    f.write(f"    News: {headline}\n")
+                if info.get("title"):
+                    f.write(f"    Title  : {info['title']}\n")
+                if info.get("summary"):
+                    f.write(f"    Summary: {info['summary']}\n")
+                if info.get("url"):
+                    f.write(f"    Link   : {info['url']}\n")
 
     print(f"\nAlarm saved → {alarm_path}\n")
     print(alarm_path.read_text())
