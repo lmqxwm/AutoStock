@@ -158,6 +158,20 @@ NEWS_DISCOVERED: list[str] = [
     "FITB",
     "ACN",
     "APPN",
+    "DOCS",
+    "CTAS",
+    "CELU",
+    "INDB",
+    "SYY",
+    "VMI",
+    "USB",
+    "LKFN",
+    "AAL",
+    "NSANF",
+    "CPWHF",
+    "ICHIF",
+    "KEY",
+    "SNDVF",
 ]
 
 # ── Master list ───────────────────────────────────────────────────────────────

@@ -19,7 +19,7 @@ import logging
 import os
 import sys
 import warnings
-from datetime import datetime, timezone
+from datetime import datetime, date, timezone
 from importlib import reload
 from pathlib import Path
 from zoneinfo import ZoneInfo

@@ -5,8 +5,10 @@
 # Get keys here (all free tiers available):
 #   Finnhub  : https://finnhub.io
 #   Marketaux: https://www.marketaux.com
-#   Gemini   : https://aistudio.google.com/app/apikey
+#   Gemini   : https://aistudio.google.com/app/apikey  (key starts with AIzaSy...)
+#   Groq     : https://console.groq.com  (free, fast, good fallback for Gemini)
 
 FINNHUB_API_KEY=your_finnhub_key_here
 GEMINI_API_KEY=your_gemini_key_here
 MARKETAUX_API_KEY=your_marketaux_key_here
+GROQ_API_KEY=your_groq_key_here

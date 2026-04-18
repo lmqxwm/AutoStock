@@ -28,7 +28,7 @@ from datetime import datetime, timedelta, timezone
 logger = logging.getLogger(__name__)
 
 # ── API keys (loaded from keys.txt via keys.py) ───────────────────────────────
-from keys import FINNHUB_API_KEY, GEMINI_API_KEY, MARKETAUX_KEY
+from keys import FINNHUB_API_KEY, GEMINI_API_KEY, MARKETAUX_KEY, GROQ_API_KEY
 
 # ── Config ────────────────────────────────────────────────────────────────────
 MARKETAUX_BASE   = "https://api.marketaux.com/v1"
@@ -201,6 +201,57 @@ def _regex_fallback(articles: list[dict]) -> list[dict]:
     return [{"company": "", "ticker": t} for t in found]
 
 
+def _call_groq(articles: list[dict]) -> list[dict]:
+    """
+    Call Groq API (free tier) as a fallback when Gemini is unavailable.
+    Uses llama-3.3-70b-versatile — fast, free, and handles structured output well.
+    """
+    try:
+        from groq import Groq
+    except ImportError:
+        logger.error("Run: pip install groq")
+        return []
+
+    client = Groq(api_key=GROQ_API_KEY)
+    results: list[dict] = []
+    models_to_try = ["llama-3.3-70b-versatile", "llama3-70b-8192", "mixtral-8x7b-32768"]
+
+    for i in range(0, len(articles), LLM_BATCH_SIZE):
+        batch  = articles[i : i + LLM_BATCH_SIZE]
+        prompt = _articles_to_prompt(batch)
+        success = False
+        for model_id in models_to_try:
+            try:
+                resp = client.chat.completions.create(
+                    model=model_id,
+                    messages=[
+                        {"role": "system", "content": _SYSTEM_PROMPT},
+                        {"role": "user",   "content": "News:\n" + prompt},
+                    ],
+                    temperature=0,
+                )
+                text = resp.choices[0].message.content.strip()
+                text = re.sub(r"^```(?:json)?\s*", "", text)
+                text = re.sub(r"\s*```$", "", text)
+                parsed = json.loads(text)
+                if isinstance(parsed, list):
+                    results.extend(parsed)
+                success = True
+                logger.info(f"Groq batch {i//LLM_BATCH_SIZE+1} OK ({model_id}).")
+                break
+            except Exception as e:
+                err_str = str(e)
+                if "rate_limit" in err_str.lower() or "429" in err_str:
+                    logger.warning(f"Groq quota hit on {model_id}, trying next …")
+                    continue
+                logger.warning(f"Groq batch {i//LLM_BATCH_SIZE+1} ({model_id}) error: {e}")
+                break
+        if not success:
+            logger.warning(f"All Groq models exhausted for batch {i//LLM_BATCH_SIZE+1}.")
+
+    return results
+
+
 # ── Finnhub ticker validator ──────────────────────────────────────────────────
 
 def _finnhub_search(query: str) -> str | None:
@@ -335,12 +386,35 @@ def run_news_discovery(alarm_path: Path | None = None,
             entity_candidates.append({"company": "", "ticker": sym})
 
     # 3. LLM extraction from article text
-    if GEMINI_API_KEY:
-        llm_candidates = _call_gemini(articles)
-        logger.info(f"Gemini returned {len(llm_candidates)} candidates.")
-    else:
-        logger.info("GEMINI_API_KEY not set — using regex fallback.")
+    # Warn once if Gemini key looks wrong (OAuth token instead of API key)
+    if GEMINI_API_KEY and not GEMINI_API_KEY.startswith("AIzaSy"):
+        logger.warning(
+            "GEMINI_API_KEY looks wrong — real Gemini API keys start with 'AIzaSy'. "
+            "Get one at: https://aistudio.google.com/app/apikey"
+        )
+
+    llm_candidates: list[dict] = []
+    llm_source = "none"
+
+    if GEMINI_API_KEY and GEMINI_API_KEY.startswith("AIzaSy"):
+        cands = _call_gemini(articles)
+        if cands:
+            llm_candidates = cands
+            llm_source = "Gemini"
+
+    if not llm_candidates and GROQ_API_KEY:
+        logger.info("Trying Groq for LLM extraction …")
+        cands = _call_groq(articles)
+        if cands:
+            llm_candidates = cands
+            llm_source = "Groq"
+
+    if not llm_candidates:
+        logger.info("No LLM available — using regex fallback.")
         llm_candidates = _regex_fallback(articles)
+        llm_source = "regex"
+
+    logger.info(f"LLM extraction ({llm_source}): {len(llm_candidates)} candidates.")
 
     # 4. Merge & deduplicate candidates
     all_candidates = entity_candidates + llm_candidates
