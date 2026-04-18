@@ -144,15 +144,15 @@ def _call_gemini(articles: list[dict]) -> list[dict]:
     """
     try:
         from google import genai
-        from google.genai import errors as genai_errors
     except ImportError:
-        logger.error("Run: pip install google-genai")
+        logger.error("Run: pip3 install google-genai")
         return []
 
     client = genai.Client(api_key=GEMINI_API_KEY)
     results: list[dict] = []
 
-    models_to_try = ["gemini-2.0-flash", "gemini-1.5-flash"]
+    # Fallback chain: fastest → lightest (to survive quota limits)
+    models_to_try = ["gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-flash-lite-latest"]
 
     for i in range(0, len(articles), LLM_BATCH_SIZE):
         batch  = articles[i : i + LLM_BATCH_SIZE]

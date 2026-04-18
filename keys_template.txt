@@ -1,0 +1,12 @@
+# AutoStock API Keys
+# Copy this file to keys.txt and fill in your keys.
+# keys.txt is gitignored and will never be committed.
+#
+# Get keys here (all free tiers available):
+#   Finnhub  : https://finnhub.io
+#   Marketaux: https://www.marketaux.com
+#   Gemini   : https://aistudio.google.com/app/apikey
+
+FINNHUB_API_KEY=your_finnhub_key_here
+GEMINI_API_KEY=your_gemini_key_here
+MARKETAUX_API_KEY=your_marketaux_key_here

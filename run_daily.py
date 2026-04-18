@@ -22,6 +22,9 @@ import warnings
 from datetime import datetime, timezone
 from importlib import reload
 from pathlib import Path
+from zoneinfo import ZoneInfo
+
+ET = ZoneInfo("America/New_York")
 
 warnings.filterwarnings("ignore")
 logging.basicConfig(level=logging.INFO,
@@ -43,7 +46,7 @@ def run(no_news: bool = False,
 
     import pandas as pd
     import tickers as tickers_mod
-    from get_stock_data import update_all_stocks, get_stock_data, last_updated, _load
+    from get_stock_data import update_all_stocks, get_stock_data, last_updated, last_updated_et_date, _load
     from strategy import check_all_strategies, STRATEGIES
     from information import run_news_discovery
 
@@ -51,13 +54,13 @@ def run(no_news: bool = False,
     manually_removed = manually_removed or []
 
     # ── Timestamps ────────────────────────────────────────────────────────────
-    run_ts    = datetime.now(tz=timezone.utc)
+    run_ts    = datetime.now(tz=ET)
     run_label = run_ts.strftime("%Y-%m-%d_%H-%M")
     alarm_path = ALARMS_DIR / f"{run_label}.txt"
     today = run_ts.date()
 
     print(f"\n{'='*60}")
-    print(f"  AutoStock Daily Run — {run_ts.strftime('%Y-%m-%d %H:%M UTC')}")
+    print(f"  AutoStock Daily Run — {run_ts.strftime('%Y-%m-%d %H:%M %Z')}")
     print(f"{'='*60}\n")
 
     # ── Step 1: News discovery ────────────────────────────────────────────────
@@ -85,7 +88,7 @@ def run(no_news: bool = False,
     print(f"\n[ 3/5 ] Updating price data …")
     needs_update = [
         t for t in all_tickers
-        if (lu := last_updated(t)) is None or lu.date() < today
+        if (last_updated_et_date(t) or date(2000, 1, 1)) < today
     ]
     print(f"        {len(needs_update)} tickers need new bars.")
 
@@ -99,12 +102,12 @@ def run(no_news: bool = False,
                 stock_data[t] = df
 
     latest_dates = {
-        sym: df.index.max().strftime("%Y-%m-%d")
+        sym: df.index.max().astimezone(ET).strftime("%Y-%m-%d %H:%M ET")
         for sym, df in stock_data.items()
     }
     overall_latest = max(latest_dates.values()) if latest_dates else "N/A"
     print(f"        Data available for {len(stock_data)} tickers.")
-    print(f"        Latest bar date: {overall_latest}")
+    print(f"        Latest bar: {overall_latest}")
 
     # ── Step 3: Run strategies ────────────────────────────────────────────────
     print(f"\n[ 4/5 ] Running strategies …")
@@ -141,7 +144,7 @@ def run(no_news: bool = False,
     # ── Step 5: Write alarm file ──────────────────────────────────────────────
     with open(alarm_path, "w", encoding="utf-8") as f:
         f.write("AutoStock Daily Report\n")
-        f.write(f"Generated  : {run_ts.strftime('%Y-%m-%d %H:%M UTC')}\n")
+        f.write(f"Generated  : {run_ts.strftime('%Y-%m-%d %H:%M %Z')}\n")
         f.write(f"Latest data: {overall_latest}\n")
         f.write(f"Universe   : {len(stock_data)} tickers\n")
         f.write("=" * 60 + "\n")

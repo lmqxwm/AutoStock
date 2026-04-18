@@ -20,6 +20,9 @@ import warnings
 from pathlib import Path
 from datetime import datetime, timedelta, date, timezone
 from collections import defaultdict
+from zoneinfo import ZoneInfo
+
+ET = ZoneInfo("America/New_York")
 
 import numpy as np
 import pandas as pd
@@ -121,10 +124,17 @@ def _save(symbol: str, df: pd.DataFrame) -> None:
 
 
 def last_updated(symbol: str) -> datetime | None:
+    """Return the most recent bar's datetime (UTC-aware)."""
     df = _load(symbol)
     if df is not None and not df.empty:
         return df.index.max().to_pydatetime()
     return None
+
+
+def last_updated_et_date(symbol: str) -> date | None:
+    """Return the most recent bar's date in ET (what matters for skip logic)."""
+    lu = last_updated(symbol)
+    return lu.astimezone(ET).date() if lu is not None else None
 
 
 # ── Batch download ────────────────────────────────────────────────────────────
@@ -225,23 +235,24 @@ def update_all_stocks(symbols: list[str],
     -------
     dict {symbol: full DataFrame with indicators}
     """
-    today = datetime.now(tz=timezone.utc).date()
-    end_str = (today + timedelta(days=1)).strftime("%Y-%m-%d")
-    default_start = (today - timedelta(days=INITIAL_HISTORY_DAYS)).strftime("%Y-%m-%d")
+    # Use ET date as the reference — yfinance stores Apr 16 close as
+    # 2026-04-17 00:00 UTC, so .date() in UTC = today, which wrongly skips it.
+    today_et = datetime.now(tz=ET).date()
+    end_str = (today_et + timedelta(days=1)).strftime("%Y-%m-%d")
+    default_start = (today_et - timedelta(days=INITIAL_HISTORY_DAYS)).strftime("%Y-%m-%d")
 
     # ── Determine start date per symbol ──────────────────────────────────────
-    # Group by start-date so we can batch together tickers that need the same range.
     start_date_groups: dict[str, list[str]] = defaultdict(list)
 
     skipped = []
     for sym in symbols:
         if not force_full:
-            lu = last_updated(sym)
-            if lu is not None and lu.date() >= today:
+            last_et = last_updated_et_date(sym)   # date in ET, not UTC
+            if last_et is not None and last_et >= today_et:
                 skipped.append(sym)
                 continue
-            if lu is not None:
-                start = (lu.date() + timedelta(days=1)).strftime("%Y-%m-%d")
+            if last_et is not None:
+                start = (last_et + timedelta(days=1)).strftime("%Y-%m-%d")
             else:
                 start = default_start
         else:
