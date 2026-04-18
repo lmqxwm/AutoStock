@@ -1,6 +1,6 @@
 # API keys — never commit these
 keys.txt
-keys.py
+# keys.py is safe to commit (it contains no secrets, only reads keys.txt)
 
 # Price data cache (large binary files, regenerated on first run)
 data/

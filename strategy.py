@@ -240,11 +240,15 @@ def trend_pullback_momentum(df: pd.DataFrame) -> tuple[bool, str]:
     if not volume_ok:
         return False, f"No volume spike ({volume:,.0f} ≤ avg {vol_ma:,.0f})"
 
+    atr = _safe_get(df, "ATR14")
+    stop = close - 1.5 * atr if not np.isnan(atr) else "N/A"
+    stop_str = f"{stop:.2f}" if isinstance(stop, float) else stop
     return (
         True,
         f"[Trend+Pullback+Momentum] Price={close:.2f} above MA50={ma50:.2f}, "
         f"pulled back to MA20={ma20:.2f}, MACD histogram increasing ({hist:.4f}), "
-        f"volume spike ({volume:,.0f} vs avg {vol_ma:,.0f})."
+        f"volume spike ({volume:,.0f} vs avg {vol_ma:,.0f}). "
+        f"Stop: {stop_str} (1.5×ATR below entry). Exit: close below MA20."
     )
 
 
@@ -279,10 +283,16 @@ def golden_death_cross(df: pd.DataFrame) -> tuple[bool, str]:
     recent_cross = ma50 > ma200 and ma50_1 > ma200_1
     # We only fire on the actual crossover bar; use golden_cross
     if not golden_cross:
-        # Check death cross as informational
+        # Death cross fires as a SELL/WARNING signal — must return True so it
+        # appears in the alarm output; the description makes the direction clear.
         death_cross = (ma50_1 >= ma200_1) and (ma50 < ma200)
         if death_cross:
-            return False, f"[Death Cross ALERT] MA50={ma50:.2f} just crossed BELOW MA200={ma200:.2f} — bearish signal."
+            return (
+                True,
+                f"[Death Cross ⚠ SELL SIGNAL] MA50={ma50:.2f} just crossed BELOW "
+                f"MA200={ma200:.2f} — strong bearish signal. "
+                f"Exit or avoid long positions. No stop target (trend exit)."
+            )
         return False, f"No cross detected (MA50={ma50:.2f}, MA200={ma200:.2f})"
 
     # Confirm MA50 is rising
@@ -297,11 +307,12 @@ def golden_death_cross(df: pd.DataFrame) -> tuple[bool, str]:
     if not confirm:
         return False, "Golden Cross detected but neither volume nor MACD confirms"
 
+    stop = ma200 * 0.98   # 2% below MA200 — if it falls back through, cross failed
     return (
         True,
-        f"[Golden Cross] MA50={ma50:.2f} just crossed ABOVE MA200={ma200:.2f}. "
+        f"[Golden Cross BUY] MA50={ma50:.2f} just crossed ABOVE MA200={ma200:.2f}. "
         f"MA50 rising, {'volume increasing' if vol_up else 'MACD DIF > 0'}. "
-        f"Strong bullish trend signal."
+        f"Stop: {stop:.2f} (2% below MA200). Exit: MA50 crosses back below MA200."
     )
 
 
