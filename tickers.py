@@ -154,24 +154,9 @@ ETFS = [
 # ── News-discovered tickers (auto-updated by information.py) ─────────────────
 # Do not edit manually — this list is managed programmatically.
 NEWS_DISCOVERED: list[str] = [
-    "BOH",
-    "FITB",
-    "ACN",
-    "APPN",
-    "DOCS",
-    "CTAS",
-    "CELU",
-    "INDB",
-    "SYY",
-    "VMI",
-    "USB",
-    "LKFN",
-    "AAL",
+    "SRHBF",
     "NSANF",
-    "CPWHF",
     "ICHIF",
-    "KEY",
-    "SNDVF",
 ]
 
 # ── Master list ───────────────────────────────────────────────────────────────
