@@ -134,7 +134,7 @@ def ma_pullback(df: pd.DataFrame) -> tuple[bool, str]:
         f"[MA Pullback] Price={close:.2f} pulled back to MA20={ma20:.2f}, "
         f"bullish close, momentum confirmed (RSI={rsi:.1f}), "
         f"volume {volume:,.0f} ≥ 1.2×avg. "
-        f"Stop: {sl_str}  |  Exit: trail below MA20={ma20:.2f}"
+        f"Stop: {sl_str}  |  Trail: hold while price > MA20={ma20:.2f}, exit if close below"
     )
 
 
@@ -196,7 +196,7 @@ def bollinger_rsi_mean_reversion(df: pd.DataFrame) -> tuple[bool, str]:
         True,
         f"[Bollinger+RSI MeanRev] Price={close:.2f} bounced from BB_lower={bb_lower:.2f}, "
         f"RSI={rsi:.1f} (oversold), volume decreasing. "
-        f"Stop: {stop_str}  |  Exit: BB_mid={bb_mid:.2f} or BB_upper={bb_upper:.2f}"
+        f"Stop: {stop_str}  |  Target: BB_mid={bb_mid:.2f}, full target BB_upper={bb_upper:.2f}"
     )
 
 
@@ -248,7 +248,7 @@ def trend_pullback_momentum(df: pd.DataFrame) -> tuple[bool, str]:
         f"[Trend+Pullback+Momentum] Price={close:.2f} above MA50={ma50:.2f}, "
         f"pulled back to MA20={ma20:.2f}, MACD histogram increasing ({hist:.4f}), "
         f"volume spike ({volume:,.0f} vs avg {vol_ma:,.0f}). "
-        f"Stop: {stop_str}  |  Exit: close below MA20={ma20:.2f}"
+        f"Stop: {stop_str}  |  Trail: hold while price > MA20={ma20:.2f}, exit if close below"
     )
 
 
@@ -312,7 +312,7 @@ def golden_death_cross(df: pd.DataFrame) -> tuple[bool, str]:
         True,
         f"[Golden Cross BUY] MA50={ma50:.2f} just crossed ABOVE MA200={ma200:.2f}. "
         f"MA50 rising, {'volume increasing' if vol_up else 'MACD DIF > 0'}. "
-        f"Stop: {stop:.2f}  |  Exit: MA50 ({ma50:.2f}) crosses back below MA200 ({ma200:.2f})"
+        f"Stop: {stop:.2f}  |  Trail: hold while MA50 ({ma50:.2f}) > MA200 ({ma200:.2f}), exit on death cross"
     )
 
 
@@ -358,7 +358,7 @@ def macd_trend_strategy(df: pd.DataFrame) -> tuple[bool, str]:
         True,
         f"[MACD Trend] Price={close:.2f} above MA50={ma50:.2f}. "
         f"DIF={dif:.4f} crossed above DEA={dea:.4f}, both positive. "
-        f"Stop: {ma20:.2f} (MA20)  |  Exit: DIF ({dif:.4f}) crosses below DEA ({dea:.4f})"
+        f"Stop: {ma20:.2f} (MA20)  |  Trail: hold while DIF ({dif:.4f}) > DEA ({dea:.4f}), exit on crossover"
     )
 
 

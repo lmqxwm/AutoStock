@@ -180,6 +180,9 @@ def run(no_news: bool = False,
             f.write("=" * 60 + "\n")
             for t in newly_added:
                 f.write(f"  + {t}\n")
+                headline = ticker_news.get(t)
+                if headline:
+                    f.write(f"    News: {headline}\n")
 
     print(f"\nAlarm saved → {alarm_path}\n")
     print(alarm_path.read_text())
