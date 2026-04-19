@@ -18,6 +18,10 @@ dist/
 build/
 .eggs/
 
+# Test / scratch notebooks (not for repo)
+test.ipynb
+test_executed.ipynb
+
 # Jupyter checkpoints
 .ipynb_checkpoints/
 */.ipynb_checkpoints/
