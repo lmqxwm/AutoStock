@@ -161,6 +161,8 @@ NEWS_DISCOVERED: list[str] = [
     "GRWG",
     "HYFM",
     "SMG",
+    "PLTR",
+    "BIRD",
 ]
 
 # ── Master list ───────────────────────────────────────────────────────────────
