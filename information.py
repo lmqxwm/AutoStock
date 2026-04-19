@@ -557,10 +557,19 @@ def run_news_discovery(alarm_path: Path | None = None,
     added_syms = update_tickers_py(validated)
     added_items = [v for v in validated if v["ticker"] in added_syms]
 
-    # 7. Build full ticker → {title, snippet, url} map
+    # 7. Build full ticker → {title, snippet, url} map from Marketaux entity tags
     ticker_info = build_ticker_headlines(articles)
 
-    # 8. LLM one-sentence summaries for newly discovered tickers only
+    # 8. Top-up: newly discovered tickers that weren't entity-tagged by Marketaux
+    #    (found via LLM or regex) have no entry in ticker_info — fetch from Finnhub
+    if added_syms:
+        missing = [t for t in added_syms if not ticker_info.get(t, {}).get("title")]
+        if missing:
+            logger.info(f"Fetching Finnhub news for {len(missing)} ticker(s) with no Marketaux headline …")
+            finnhub_news = fetch_finnhub_news(missing)
+            ticker_info.update(finnhub_news)
+
+    # 9. LLM one-sentence summaries for all newly discovered tickers
     if added_syms:
         summary_inputs = [
             {"ticker": t,
