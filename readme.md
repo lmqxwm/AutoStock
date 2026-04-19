@@ -64,20 +64,29 @@ pip install -r requirements.txt
 
 ### 2. API keys
 
-Three services are used. All have free tiers sufficient for daily use.
+Four services are used. All have free tiers sufficient for daily use.
 
 | Service | Used for | Free limit | Sign up |
 |---|---|---|---|
 | **Finnhub** | Ticker validation | 60 req/min | [finnhub.io](https://finnhub.io) |
 | **Marketaux** | Financial news articles | 100 req/day | [marketaux.com](https://www.marketaux.com) |
-| **Google Gemini** | LLM extraction from news | 1 500 req/day | [aistudio.google.com](https://aistudio.google.com/app/apikey) |
+| **Google Gemini** | LLM extraction from news | 1 500 req/day | [aistudio.google.com](https://aistudio.google.com/app/apikey) — key starts with `AIzaSy` |
+| **Groq** | LLM fallback if Gemini unavailable | ~14 400 req/day free | [console.groq.com](https://console.groq.com) |
 
-Keys are already embedded in `information.py`. To override, set environment variables:
+Copy `keys_template.txt` to `keys.txt` and fill in your keys. `keys.txt` is gitignored and never committed.
+
+```bash
+cp keys_template.txt keys.txt
+# then edit keys.txt with your actual keys
+```
+
+Alternatively, set environment variables (takes priority over `keys.txt`):
 
 ```bash
 export FINNHUB_API_KEY="your_key"
 export MARKETAUX_API_KEY="your_key"
-export GEMINI_API_KEY="your_key"
+export GEMINI_API_KEY="your_key"   # must start with AIzaSy
+export GROQ_API_KEY="your_key"
 ```
 
 ---
@@ -170,7 +179,30 @@ Computed in `get_stock_data.py` on the full OHLCV history and stored in each Par
 
 Each function signature: `strategy(df: pd.DataFrame) → (triggered: bool, description: str)`
 
-<!-- comments -->
+### Understanding Stop, Trail, and Target
+
+Every signal in the alarm report includes one or two of these exit instructions:
+
+| Term | What it means | Typical position relative to price |
+|---|---|---|
+| **Stop** | Hard cut-loss level. If price touches this, sell immediately — no debate. Protects you when the trade goes against you right away. | **Below** entry price |
+| **Trail** | A dynamic hold condition. Stay in the trade *as long as* price remains above this level. As price rises, MA20 rises with it, so the trail level rises too — locking in more profit over time. Exit when price closes below the trail. | **Below** current price — intentionally, because you're riding a trend upward |
+| **Target** | A fixed profit-taking price. Used in mean-reversion strategies where you expect price to snap back to a specific level (e.g. Bollinger mid-band). | **Above** current price |
+
+**Practical example using Walmart (WMT):**
+```
+WMT entry at $95.00 (signal triggered)
+ATR14       = $2.00
+
+Stop        = $92.00  (entry − 1.5×ATR)  ← sell here if wrong from day one
+Trail level = $91.50  (today's MA20)     ← if WMT runs to $110 and MA20 reaches $106,
+                                            you only exit when price drops back to $106
+                                            — capturing most of the $15 gain
+```
+Stop and trail work together: the Stop covers the immediate downside risk; the Trail locks in gains once the trade moves in your favour.
+
+---
+
 ### 1 · MA Pullback
 Trend-following entry on a pullback to the 20-day MA.
 
@@ -179,7 +211,7 @@ Trend-following entry on a pullback to the 20-day MA.
 | Setup | price > MA50 AND MA50 slope positive (net rising last 5 bars) |
 | Entry | low touches MA20 AND bullish candle AND (MACD histogram rising OR RSI > 40) AND volume ≥ 1.2× avg |
 | Stop | entry − 1.5 × ATR14 |
-| Exit | close below MA20, or trail stop |
+| Trail | hold while price > MA20; exit if daily close drops below MA20 |
 | Avoid | flat MA50 · price near MA200 · low volume |
 
 ### 2 · Bollinger + RSI Mean Reversion
@@ -189,8 +221,8 @@ Counter-trend bounce in a sideways market.
 |---|---|
 | Setup | MA50 flat — range < 5% over 10 bars |
 | Entry | low touches lower BB AND RSI < 30 AND volume decreasing AND close back inside band |
-| Stop | lower band − 1 × ATR14 |
-| Target | BB middle (MA20) or upper band |
+| Stop | lower BB − 1 × ATR14 |
+| Target | BB middle (MA20) for partial exit; BB upper for full exit |
 
 ### 3 · Trend + Pullback + Momentum
 Simplified trend-continuation entry.
@@ -199,14 +231,21 @@ Simplified trend-continuation entry.
 |---|---|
 | Setup | price > MA50 |
 | Entry | low ≤ MA20 × 1.01 AND MACD histogram increasing AND volume > 20-day average |
+| Stop | entry − 1.5 × ATR14 |
+| Trail | hold while price > MA20; exit if daily close drops below MA20 |
 
 ### 4 · Golden / Death Cross
 MA50 / MA200 crossover system.
 
 | Signal | Condition |
 |---|---|
-| Buy (triggered = True) | MA50 crosses **above** MA200 AND MA50 rising AND (volume up OR DIF > 0) |
-| Bearish alert (triggered = False) | MA50 crosses **below** MA200 |
+| **BUY** (triggered = True) | MA50 crosses **above** MA200 AND MA50 rising AND (volume up OR DIF > 0) |
+| **SELL WARNING** (triggered = True) | MA50 crosses **below** MA200 — exit or avoid longs |
+
+| | Condition |
+|---|---|
+| Stop (Golden Cross) | 2% below MA200 at entry |
+| Trail | hold while MA50 > MA200; exit when death cross occurs |
 
 ### 5 · MACD Trend
 DIF / DEA crossover above the zero line.
@@ -216,13 +255,7 @@ DIF / DEA crossover above the zero line.
 | Setup | price > MA50 |
 | Entry | DIF crosses above DEA AND both DIF > 0 AND DEA > 0 |
 | Stop | close below MA20 |
-| Exit | DIF crosses below DEA |
-
-Example: 
-
-Entry at $100
-Stop  = $92   (entry − 1.5×ATR)   ← price drops here → sell immediately, no debate
-Exit  = price closes below MA20    ← trend weakening → sell even if still profitable
+| Trail | hold while DIF > DEA; exit when DIF crosses back below DEA |
 
 ---
 
@@ -250,31 +283,38 @@ Every run writes `alarms/YYYY-MM-DD_HH-MM.txt`:
 
 ```
 AutoStock Daily Report
-Generated  : 2026-04-17 20:10 UTC
-Latest data: 2026-04-17
+Generated  : 2026-04-17 20:10 ET
+Latest data: 2026-04-17 16:00 ET
 Universe   : 332 tickers
 ============================================================
 SIGNALS
 ============================================================
 
 [MA Pullback]
-  NFLX     (data thru 2026-04-17)
-  Price=97.31 pulled back to MA20=98.15, bullish close,
-  RSI=48.6, volume 124M ≥ 1.2×avg. Stop=92.09.
+  WMT      (data thru 2026-04-17 16:00 ET)
+  [MA Pullback] Price=95.40 pulled back to MA20=91.50, bullish close,
+  RSI=48.6, volume 42M ≥ 1.2×avg.
+  Stop: 92.10  |  Trail: hold while price > MA20=91.50, exit if close below
+  News: Walmart beats Q1 estimates on strong grocery and e-commerce growth
 
 [Golden/Death Cross]
-  AVGO     (data thru 2026-04-17)
-  MA50=333.00 crossed above MA200=332.07. MA50 rising. Volume up.
+  AVGO     (data thru 2026-04-17 16:00 ET)
+  [Golden Cross BUY] MA50=333.00 crossed above MA200=332.07. MA50 rising. Volume up.
+  Stop: 325.43  |  Trail: hold while MA50 (333.00) > MA200 (332.07), exit on death cross
 
 [MACD Trend]
-  BRZE     (data thru 2026-04-17)
-  DIF=0.47 crossed above DEA=0.45, both positive. Stop: MA20=21.68.
+  BRZE     (data thru 2026-04-17 16:00 ET)
+  [MACD Trend] Price=21.90 above MA50=20.40. DIF=0.47 crossed above DEA=0.45, both positive.
+  Stop: 21.68 (MA20)  |  Trail: hold while DIF (0.47) > DEA (0.45), exit on crossover
 
 ============================================================
 NEWS-DISCOVERED TICKERS
 ============================================================
-  + APPN     Appian Corporation
-  + KURA     Kura Oncology
+  + RDDT
+    Title  : Reddit Partners with OpenAI to Provide Real-Time Data Access
+    Summary: Reddit secured a data licensing deal with OpenAI, boosting revenue
+             diversification and validating its AI content strategy.
+    Link   : https://www.marketaux.com/article/...
 ```
 
 ---
@@ -295,15 +335,15 @@ Price history lives in `data/` as one Parquet file per ticker (e.g. `data/AAPL.p
 
 **Add tickers permanently** — edit the relevant list in `tickers.py`:
 ```python
-SAAS = [
+CONSUMER = [
     ...,
-    "PLTR",   # Palantir
+    "WMT",   # Walmart
 ]
 ```
 
 **Add tickers for one session only** — CLI flag or notebook cell:
 ```bash
-python run_daily.py --add PLTR ARM IONQ
+python run_daily.py --add WMT TGT COST
 ```
 
 **Tune a strategy** — edit the relevant function in `strategy.py`. Each function is independent and self-contained. The aggregate `check_all_strategies()` calls all of them.
