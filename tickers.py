@@ -157,6 +157,10 @@ NEWS_DISCOVERED: list[str] = [
     "SRHBF",
     "NSANF",
     "ICHIF",
+    "KMRPF",
+    "GRWG",
+    "HYFM",
+    "SMG",
 ]
 
 # ── Master list ───────────────────────────────────────────────────────────────
