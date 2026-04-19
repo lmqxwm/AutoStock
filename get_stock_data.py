@@ -16,6 +16,7 @@ ATR14
 """
 
 import logging
+import time
 import warnings
 from pathlib import Path
 from datetime import datetime, timedelta, date, timezone
@@ -140,6 +141,8 @@ def last_updated_et_date(symbol: str) -> date | None:
 # ── Batch download ────────────────────────────────────────────────────────────
 
 OHLCV = ["Open", "High", "Low", "Close", "Volume"]
+BATCH_SLEEP   = 3    # seconds between batch calls to avoid rate limiting
+RATE_BACKOFF  = [10, 30, 60]   # retry wait times on 429 (seconds)
 
 
 def _yf_batch(symbols: list[str], start: str, end: str) -> dict[str, pd.DataFrame]:
@@ -149,19 +152,36 @@ def _yf_batch(symbols: list[str], start: str, end: str) -> dict[str, pd.DataFram
 
     Handles both old yfinance (flat columns for single ticker) and new yfinance
     (always MultiIndex: top level = field name, second level = ticker).
+    Retries automatically on yfinance rate-limit errors (429).
     """
     if not symbols:
         return {}
 
-    raw = yf.download(
-        tickers=symbols,
-        start=start,
-        end=end,
-        auto_adjust=True,
-        group_by="ticker",
-        threads=True,
-        progress=False,
-    )
+    raw = None
+    for attempt, wait in enumerate([0] + RATE_BACKOFF):
+        if wait:
+            logger.warning(f"yfinance rate limit — retrying in {wait}s "
+                           f"(attempt {attempt}/{len(RATE_BACKOFF)}) …")
+            time.sleep(wait)
+        try:
+            raw = yf.download(
+                tickers=symbols,
+                start=start,
+                end=end,
+                auto_adjust=True,
+                group_by="ticker",
+                threads=True,
+                progress=False,
+            )
+            break   # success
+        except Exception as e:
+            err = str(e).lower()
+            if "rate" in err or "429" in err or "too many" in err:
+                if attempt < len(RATE_BACKOFF):
+                    continue
+            # Non-rate-limit error — log and return empty
+            logger.error(f"yfinance download error: {e}")
+            return {}
 
     results: dict[str, pd.DataFrame] = {}
     if raw is None or raw.empty:
@@ -279,7 +299,9 @@ def update_all_stocks(symbols: list[str],
         )
 
         # Split into batches of BATCH_SIZE (avoid yfinance URL-length limits)
-        for batch in _batches(group_syms, BATCH_SIZE):
+        for b_idx, batch in enumerate(_batches(group_syms, BATCH_SIZE)):
+            if b_idx > 0:
+                time.sleep(BATCH_SLEEP)
             new_data = _yf_batch(batch, start=start_str, end=end_str)
 
             for sym in batch:

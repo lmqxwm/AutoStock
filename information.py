@@ -253,6 +253,43 @@ def _call_groq(articles: list[dict]) -> list[dict]:
     return results
 
 
+# ── Finnhub news fetcher ──────────────────────────────────────────────────────
+
+def fetch_finnhub_news(symbols: list[str], days: int = 7) -> dict[str, dict]:
+    """
+    Fetch the most recent news headline for each symbol via Finnhub /company-news.
+    Used to fill in news for alarm-triggered tickers not covered by Marketaux articles.
+    Returns {symbol: {title, snippet, url}}.
+    """
+    from_date = (datetime.now(tz=timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d")
+    to_date   = datetime.now(tz=timezone.utc).strftime("%Y-%m-%d")
+    result: dict[str, dict] = {}
+
+    for sym in symbols:
+        time.sleep(FINNHUB_DELAY)
+        try:
+            r = requests.get(
+                f"{FINNHUB_BASE}/company-news",
+                params={"symbol": sym, "from": from_date, "to": to_date,
+                        "token": FINNHUB_API_KEY},
+                timeout=10,
+            )
+            r.raise_for_status()
+            articles = r.json()
+            if articles:
+                art = articles[0]   # most recent first
+                result[sym] = {
+                    "title"  : art.get("headline", "").strip(),
+                    "snippet": art.get("summary",  "")[:300].strip(),
+                    "url"    : art.get("url",       "").strip(),
+                }
+        except Exception as e:
+            logger.debug(f"Finnhub news for {sym}: {e}")
+
+    logger.info(f"Finnhub news: fetched headlines for {len(result)}/{len(symbols)} tickers.")
+    return result
+
+
 # ── Finnhub ticker validator ──────────────────────────────────────────────────
 
 def _finnhub_search(query: str) -> str | None:

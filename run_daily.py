@@ -48,7 +48,7 @@ def run(no_news: bool = False,
     import tickers as tickers_mod
     from get_stock_data import update_all_stocks, get_stock_data, last_updated, last_updated_et_date, _load
     from strategy import check_all_strategies, STRATEGIES
-    from information import run_news_discovery
+    from information import run_news_discovery, fetch_finnhub_news
 
     manually_added   = manually_added   or []
     manually_removed = manually_removed or []
@@ -125,7 +125,15 @@ def run(no_news: bool = False,
                         "Signal"  : r["description"],
                     })
 
-    print(f"        Signals triggered: {len(results_all)} across {len({r['Symbol'] for r in results_all})} stocks.")
+    triggered_syms = list({r["Symbol"] for r in results_all})
+    print(f"        Signals triggered: {len(results_all)} across {len(triggered_syms)} stocks.")
+
+    # ── Top-up news: fetch Finnhub headlines for triggered tickers with no Marketaux news ──
+    missing_news = [s for s in triggered_syms if not ticker_news.get(s, {}).get("title")]
+    if missing_news:
+        print(f"\n        Fetching Finnhub news for {len(missing_news)} ticker(s) …")
+        extra = fetch_finnhub_news(missing_news)
+        ticker_news.update(extra)
 
     # ── Step 4: Display results ───────────────────────────────────────────────
     print(f"\n[ 5/5 ] Results\n")
@@ -145,6 +153,8 @@ def run(no_news: bool = False,
                 info = ticker_news.get(r["Symbol"], {})
                 if info.get("title"):
                     print(f"    News: {info['title']}")
+                if info.get("url"):
+                    print(f"    Link: {info['url']}")
                 print()
 
     # ── Step 5: Write alarm file ──────────────────────────────────────────────
@@ -171,6 +181,8 @@ def run(no_news: bool = False,
                     info = ticker_news.get(r["Symbol"], {})
                     if info.get("title"):
                         f.write(f"  News: {info['title']}\n")
+                    if info.get("url"):
+                        f.write(f"  Link: {info['url']}\n")
                     f.write("\n")
 
         # News section
