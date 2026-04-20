@@ -29,6 +29,11 @@ import numpy as np
 import pandas as pd
 import yfinance as yf
 
+try:
+    from yfinance.exceptions import YFRateLimitError
+except ImportError:
+    YFRateLimitError = Exception   # older yfinance — match on name below
+
 warnings.filterwarnings("ignore", category=FutureWarning)
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s [%(levelname)s] %(message)s")
@@ -216,6 +221,41 @@ def _batches(lst: list, size: int):
         yield lst[i : i + size]
 
 
+# ── Single-ticker retry (rate-limit recovery) ─────────────────────────────────
+
+RATE_LIMIT_RETRY_DELAYS = [10, 30]   # seconds before each retry attempt
+
+def _fetch_single_with_retry(symbol: str, start: str, end: str) -> pd.DataFrame | None:
+    """
+    Download one ticker via yf.Ticker().history() — raises YFRateLimitError
+    explicitly (unlike yf.download() which swallows it), so we can retry with
+    controlled backoff.  Returns None if all attempts fail.
+    """
+    for attempt, delay in enumerate([0] + RATE_LIMIT_RETRY_DELAYS):
+        if delay:
+            logger.warning(f"    Rate-limited on {symbol} — waiting {delay}s before retry {attempt}/{len(RATE_LIMIT_RETRY_DELAYS)} …")
+            time.sleep(delay)
+        try:
+            df = yf.Ticker(symbol).history(start=start, end=end, auto_adjust=True)
+            if df is None or df.empty:
+                return None
+            # Normalise columns to match _yf_batch output
+            df = df.rename(columns={"Stock Splits": "Splits", "Dividends": "Divs"})
+            df = df[[c for c in OHLCV if c in df.columns]]
+            if not all(c in df.columns for c in OHLCV):
+                return None
+            df.index = pd.to_datetime(df.index, utc=True)
+            df.index.name = "Date"
+            return df
+        except Exception as e:
+            if "RateLimit" in type(e).__name__ or "rate" in str(e).lower():
+                if attempt < len(RATE_LIMIT_RETRY_DELAYS):
+                    continue   # try again after delay
+            logger.debug(f"  {symbol} single-fetch failed: {e}")
+            return None
+    return None
+
+
 # ── Update logic ──────────────────────────────────────────────────────────────
 
 def update_all_stocks(symbols: list[str],
@@ -294,12 +334,8 @@ def update_all_stocks(symbols: list[str],
             results[sym] = df
 
     # ── Download, merge, recompute ────────────────────────────────────────────
-    GROUP_PAUSE = 2   # seconds between groups — avoids yfinance 429s on multi-group runs;
-                      # on a normal daily run there is only 1 group, so no delay at all.
     total_groups = len(start_date_groups)
     for g_idx, (start_str, group_syms) in enumerate(start_date_groups.items(), 1):
-        if g_idx > 1:
-            time.sleep(GROUP_PAUSE)
         logger.info(
             f"  Download group {g_idx}/{total_groups}: "
             f"{len(group_syms)} tickers from {start_str} …"
@@ -308,6 +344,26 @@ def update_all_stocks(symbols: list[str],
         # Split into batches of BATCH_SIZE (avoid yfinance URL-length limits)
         for batch in _batches(group_syms, BATCH_SIZE):
             new_data = _yf_batch(batch, start=start_str, end=end_str)
+
+            # ── Rate-limit recovery: single-ticker retry with backoff ──────────
+            # yf.download() swallows YFRateLimitError and returns nothing.
+            # A ticker with cached history that got no new bars was almost
+            # certainly rate-limited (not delisted).  Retry one-at-a-time via
+            # yf.Ticker().history(), which raises the exception explicitly so we
+            # can back off and retry with controlled delays.
+            need_retry = [
+                sym for sym in batch
+                if sym not in new_data and _load(sym) is not None
+            ]
+            if need_retry:
+                logger.warning(
+                    f"  {len(need_retry)} ticker(s) got no data from yfinance "
+                    f"(likely rate-limited) — retrying individually: {need_retry}"
+                )
+                for sym in need_retry:
+                    df_single = _fetch_single_with_retry(sym, start=start_str, end=end_str)
+                    if df_single is not None and not df_single.empty:
+                        new_data[sym] = df_single
 
             for sym in batch:
                 new_bars = new_data.get(sym)
