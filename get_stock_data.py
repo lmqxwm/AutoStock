@@ -237,8 +237,20 @@ def update_all_stocks(symbols: list[str],
     """
     # Use ET date as the reference — yfinance stores Apr 16 close as
     # 2026-04-17 00:00 UTC, so .date() in UTC = today, which wrongly skips it.
-    today_et = datetime.now(tz=ET).date()
-    end_str = (today_et + timedelta(days=1)).strftime("%Y-%m-%d")
+    now_et    = datetime.now(tz=ET)
+    today_et  = now_et.date()
+
+    # If the market has not yet closed (before 4:30 pm ET on a weekday),
+    # today's bar from yfinance is incomplete — cap download at yesterday so
+    # strategies are always evaluated on full candles only.
+    MARKET_CLOSE = now_et.replace(hour=16, minute=30, second=0, microsecond=0)
+    if now_et.weekday() < 5 and now_et < MARKET_CLOSE:   # weekday + before close
+        effective_end = today_et                           # exclude today
+        logger.info("Market still open — using yesterday's close as latest bar.")
+    else:
+        effective_end = today_et + timedelta(days=1)      # normal: include today
+
+    end_str = effective_end.strftime("%Y-%m-%d")
     default_start = (today_et - timedelta(days=INITIAL_HISTORY_DAYS)).strftime("%Y-%m-%d")
 
     # ── Determine start date per symbol ──────────────────────────────────────

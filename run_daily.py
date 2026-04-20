@@ -103,8 +103,11 @@ def run(no_news: bool = False,
             if df is not None and not df.empty:
                 stock_data[t] = df
 
+    # Show the ET calendar date of the last bar — avoids confusing UTC-shifted times
+    # (yfinance timestamps daily bars at midnight UTC, which shows as 8 pm ET of
+    # the prior calendar day and misleads users about which trading day is current).
     latest_dates = {
-        sym: df.index.max().astimezone(ET).strftime("%Y-%m-%d %H:%M ET")
+        sym: df.index.max().astimezone(ET).strftime("%Y-%m-%d (ET)")
         for sym, df in stock_data.items()
     }
     overall_latest = max(latest_dates.values()) if latest_dates else "N/A"
