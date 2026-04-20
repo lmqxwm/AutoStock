@@ -3,6 +3,9 @@ keys.txt
 
 # News-discovered tickers (auto-managed locally, not shared via git)
 news_discovered.txt
+
+# Personal position tracking (local only — never commit)
+held_stocks.txt
 # keys.py is safe to commit (it contains no secrets, only reads keys.txt)
 
 # Price data cache (large binary files, regenerated on first run)
