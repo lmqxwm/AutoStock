@@ -6,10 +6,11 @@ Command-line runner — executes the same logic as daily_run.ipynb.
 
 Usage
 -----
-    python run_daily.py                      # normal run
-    python run_daily.py --no-news            # skip news discovery
-    python run_daily.py --force-download     # re-download all history
-    python run_daily.py --inspect NVDA AAPL  # also print indicator table for these tickers
+    python run_daily.py                          # normal run
+    python run_daily.py --no-news                # skip news discovery
+    python run_daily.py --force-download         # re-download all history
+    python run_daily.py --inspect NVDA AAPL      # print indicator table for these tickers
+    python run_daily.py --date 2026-04-17        # simulate as-of a past date (no download)
 
 Alarm output is written to ./alarms/YYYY-MM-DD_HH-MM.txt
 """
@@ -42,8 +43,13 @@ def run(no_news: bool = False,
         force_download: bool = False,
         manually_added: list[str] | None = None,
         manually_removed: list[str] | None = None,
-        inspect: list[str] | None = None):
-
+        inspect: list[str] | None = None,
+        as_of_date: str | None = None):
+    """
+    as_of_date : "YYYY-MM-DD" — simulate a past trading day using cached data.
+                 Skips news discovery and data download; slices all DataFrames
+                 at that date so strategies see only data up to that point.
+    """
     import pandas as pd
     import tickers as tickers_mod
     from get_stock_data import update_all_stocks, get_stock_data, last_updated, last_updated_utc_date, _load
@@ -59,14 +65,26 @@ def run(no_news: bool = False,
     alarm_path = ALARMS_DIR / f"{run_label}.txt"
     today = run_ts.date()
 
+    # Past-date simulation mode
+    sim_cutoff = None
+    if as_of_date:
+        sim_cutoff = pd.Timestamp(as_of_date, tz="UTC")
+        run_label  = f"sim_{as_of_date}"
+        alarm_path = ALARMS_DIR / f"{run_label}.txt"
+
     print(f"\n{'='*60}")
-    print(f"  AutoStock Daily Run — {run_ts.strftime('%Y-%m-%d %H:%M %Z')}")
+    if sim_cutoff is not None:
+        print(f"  AutoStock Simulation — as of {as_of_date}  (no download, no news)")
+    else:
+        print(f"  AutoStock Daily Run — {run_ts.strftime('%Y-%m-%d %H:%M %Z')}")
     print(f"{'='*60}\n")
 
     # ── Step 1: News discovery ────────────────────────────────────────────────
     newly_added: list[str] = []
     ticker_news: dict[str, str] = {}   # ticker → latest headline
-    if not no_news:
+    if sim_cutoff is not None:
+        print("[ 1/5 ] News discovery skipped (simulation mode).")
+    elif not no_news:
         print("[ 1/5 ] News discovery …")
         newly_added, ticker_news = run_news_discovery(alarm_path=None)
         if newly_added:
@@ -88,23 +106,31 @@ def run(no_news: bool = False,
 
     # ── Step 2: Incremental data update ──────────────────────────────────────
     print(f"\n[ 3/5 ] Updating price data …")
-    needs_update = [
-        t for t in all_tickers
-        if (last_updated_utc_date(t) or date(2000, 1, 1)) < today
-    ]
-    print(f"        {len(needs_update)} tickers need new bars.")
-
-    stock_data = update_all_stocks(needs_update, force_full=force_download)
-
-    # Load already-current tickers from disk
-    for t in all_tickers:
-        if t not in stock_data:
+    if sim_cutoff is not None:
+        # Simulation: load all cached data, slice at cutoff — no download
+        stock_data = {}
+        for t in all_tickers:
             df = _load(t)
             if df is not None and not df.empty:
-                stock_data[t] = df
+                df_slice = df[df.index <= sim_cutoff]
+                if len(df_slice) >= 50:
+                    stock_data[t] = df_slice
+        print(f"        Simulation mode — loaded and sliced to {as_of_date}.")
+    else:
+        needs_update = [
+            t for t in all_tickers
+            if (last_updated_utc_date(t) or date(2000, 1, 1)) < today
+        ]
+        print(f"        {len(needs_update)} tickers need new bars.")
+        stock_data = update_all_stocks(needs_update, force_full=force_download)
+        # Load already-current tickers from disk
+        for t in all_tickers:
+            if t not in stock_data:
+                df = _load(t)
+                if df is not None and not df.empty:
+                    stock_data[t] = df
 
-    # yfinance labels daily bars at midnight UTC of the trading day, so the
-    # UTC date directly equals the trading-day date — no timezone conversion.
+    # yfinance labels daily bars at midnight UTC of the trading day.
     latest_dates = {
         sym: df.index.max().strftime("%Y-%m-%d")
         for sym, df in stock_data.items()
@@ -239,6 +265,8 @@ def main():
                         help="Tickers to exclude this run")
     parser.add_argument("--inspect",       nargs="*", metavar="TICKER",
                         help="Print full indicator table for these tickers")
+    parser.add_argument("--date",          metavar="YYYY-MM-DD",
+                        help="Simulate as-of a past date using cached data (no download, no news)")
     args = parser.parse_args()
 
     run(
@@ -247,6 +275,7 @@ def main():
         manually_added = args.add    or [],
         manually_removed = args.remove or [],
         inspect        = args.inspect or [],
+        as_of_date     = args.date,
     )
 
 
