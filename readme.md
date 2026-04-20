@@ -252,7 +252,7 @@ DIF / DEA crossover above the zero line.
 
 | | Condition |
 |---|---|
-| Setup | price > MA50 |
+| Setup | price > MA20 — DIF>0 & DEA>0 already confirm medium-term bull trend; MA20 is a tighter, more relevant threshold than MA50 for a momentum signal |
 | Entry | DIF crosses above DEA AND both DIF > 0 AND DEA > 0 |
 | Stop | close below MA20 |
 | Trail | hold while DIF > DEA; exit when DIF crosses back below DEA |

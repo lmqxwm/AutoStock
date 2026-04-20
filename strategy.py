@@ -322,42 +322,43 @@ def macd_trend_strategy(df: pd.DataFrame) -> tuple[bool, str]:
     """
     MACD Trend Strategy
     ===================
-    Setup  : price > MA50
+    Setup  : price > MA20  (DIF>0 & DEA>0 already imply medium-term bull trend;
+                             MA20 is a tighter, more relevant short-term threshold
+                             than MA50 for a momentum-crossover signal)
     Entry  : DIF crosses above DEA AND both DIF > 0 and DEA > 0
     Stop   : close below MA20
-    Exit   : DIF crosses below DEA
+    Trail  : hold while DIF > DEA; exit on crossover
     """
     if not _has_enough_rows(df, 60):
         return False, "Insufficient data"
 
     close  = _safe_get(df, "Close")
     ma20   = _safe_get(df, "MA20")
-    ma50   = _safe_get(df, "MA50")
     dif    = _safe_get(df, "DIF")
     dea    = _safe_get(df, "DEA")
     dif_1  = _safe_get(df, "DIF", -2)
     dea_1  = _safe_get(df, "DEA", -2)
 
-    if any(np.isnan(v) for v in [close, ma50, dif, dea, dif_1, dea_1]):
+    if any(np.isnan(v) for v in [close, ma20, dif, dea, dif_1, dea_1]):
         return False, "Missing indicator values"
 
-    # Setup
-    if close <= ma50:
-        return False, f"Price ({close:.2f}) not above MA50 ({ma50:.2f})"
+    # Setup: price must be above its short-term average (not in freefall)
+    if close <= ma20:
+        return False, f"Price ({close:.2f}) not above MA20 ({ma20:.2f})"
 
     # DIF crosses above DEA (bullish crossover)
     crossed_up = (dif_1 <= dea_1) and (dif > dea)
     if not crossed_up:
         return False, f"No bullish MACD crossover (DIF={dif:.4f}, DEA={dea:.4f})"
 
-    # Both must be positive (above zero line)
+    # Both must be positive (above zero line — confirms medium-term bull momentum)
     if dif <= 0 or dea <= 0:
         return False, f"MACD crossover below zero line (DIF={dif:.4f}, DEA={dea:.4f})"
 
     return (
         True,
-        f"[MACD Trend] Price={close:.2f} above MA50={ma50:.2f}. "
-        f"DIF={dif:.4f} crossed above DEA={dea:.4f}, both positive. "
+        f"[MACD Trend] Price={close:.2f} above MA20={ma20:.2f}. "
+        f"DIF={dif:.4f} crossed above DEA={dea:.4f}, both positive (above zero line). "
         f"Stop: {ma20:.2f} (MA20)  |  Trail: hold while DIF ({dif:.4f}) > DEA ({dea:.4f}), exit on crossover"
     )
 
