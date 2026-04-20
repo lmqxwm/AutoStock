@@ -7,7 +7,7 @@ Pipeline
 2. Send article headlines + snippets to Google Gemini 2.0 Flash
    → LLM extracts company names + US stock tickers
 3. Validate each ticker via Finnhub symbol search
-4. Add newly discovered tickers to NEWS_DISCOVERED in tickers.py
+4. Add newly discovered tickers to news_discovered.txt (gitignored)
 5. Append a summary section to the daily alarm report
 
 APIs used (all free-tier)
@@ -33,9 +33,9 @@ from keys import FINNHUB_API_KEY, GEMINI_API_KEY, MARKETAUX_KEY, GROQ_API_KEY
 # ── Config ────────────────────────────────────────────────────────────────────
 MARKETAUX_BASE   = "https://api.marketaux.com/v1"
 FINNHUB_BASE     = "https://finnhub.io/api/v1"
-PROJECT_DIR      = Path(__file__).parent
-TICKERS_FILE     = PROJECT_DIR / "tickers.py"
-ALARMS_DIR       = PROJECT_DIR / "alarms"
+PROJECT_DIR           = Path(__file__).parent
+NEWS_DISCOVERED_FILE  = PROJECT_DIR / "news_discovered.txt"   # gitignored
+ALARMS_DIR            = PROJECT_DIR / "alarms"
 
 NEWS_DAYS        = 5      # look back this many days
 MAX_ARTICLES     = 60     # cap to stay within Marketaux free limit
@@ -344,27 +344,19 @@ def validate_candidates(raw: list[dict],
     return out
 
 
-# ── tickers.py writer ─────────────────────────────────────────────────────────
+# ── news_discovered.txt reader / writer ───────────────────────────────────────
 
 def _read_news_discovered() -> list[str]:
-    text = TICKERS_FILE.read_text()
-    m = re.search(r'NEWS_DISCOVERED\s*:\s*list\[str\]\s*=\s*\[(.*?)\]',
-                  text, re.DOTALL)
-    return re.findall(r'"([^"]+)"', m.group(1)) if m else []
+    """Return tickers from news_discovered.txt; empty list if file absent."""
+    if not NEWS_DISCOVERED_FILE.exists():
+        return []
+    lines = [ln.strip() for ln in NEWS_DISCOVERED_FILE.read_text().splitlines()]
+    return [ln for ln in lines if ln and not ln.startswith("#")]
 
 
 def _write_news_discovered(tickers: list[str]) -> None:
-    text = TICKERS_FILE.read_text()
-    if not tickers:
-        block = "NEWS_DISCOVERED: list[str] = [\n]"
-    else:
-        items = ",\n    ".join(f'"{t}"' for t in tickers)
-        block = f"NEWS_DISCOVERED: list[str] = [\n    {items},\n]"
-    new_text = re.sub(
-        r'NEWS_DISCOVERED\s*:\s*list\[str\]\s*=\s*\[.*?\]',
-        block, text, flags=re.DOTALL,
-    )
-    TICKERS_FILE.write_text(new_text)
+    """Overwrite news_discovered.txt with one ticker per line."""
+    NEWS_DISCOVERED_FILE.write_text("\n".join(tickers) + ("\n" if tickers else ""))
 
 
 def update_tickers_py(validated: list[dict]) -> list[str]:

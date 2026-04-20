@@ -151,21 +151,21 @@ ETFS = [
 ]
 
 
-# ── News-discovered tickers (auto-updated by information.py) ─────────────────
-# Do not edit manually — this list is managed programmatically.
-NEWS_DISCOVERED: list[str] = [
-    "SRHBF",
-    "NSANF",
-    "ICHIF",
-    "KMRPF",
-    "GRWG",
-    "HYFM",
-    "SMG",
-    "PLTR",
-    "BIRD",
-]
+# ── News-discovered tickers ───────────────────────────────────────────────────
+# Persisted in news_discovered.txt (gitignored) — never edited here.
+# Empty in the repo so fresh clones start clean; populated locally at runtime.
 
 # ── Master list ───────────────────────────────────────────────────────────────
+
+def _load_news_discovered() -> list[str]:
+    """Read news_discovered.txt (one ticker per line). Returns [] if absent."""
+    from pathlib import Path
+    p = Path(__file__).parent / "news_discovered.txt"
+    if not p.exists():
+        return []
+    lines = [ln.strip() for ln in p.read_text().splitlines()]
+    return [ln for ln in lines if ln and not ln.startswith("#")]
+
 
 def get_tickers(include_etfs: bool = True) -> list[str]:
     """
@@ -181,7 +181,7 @@ def get_tickers(include_etfs: bool = True) -> list[str]:
         INTERNET, HARDWARE_STORAGE, TELECOM,
         ENERGY_OIL_GAS, ENERGY_CLEAN, UTILITIES,
         HEALTHCARE, FINANCIALS, CONSUMER, INDUSTRIALS, REAL_ESTATE,
-        NEWS_DISCOVERED,
+        _load_news_discovered(),
     ]
     if include_etfs:
         all_lists.append(ETFS)

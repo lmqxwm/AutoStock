@@ -1,5 +1,8 @@
 # API keys — never commit these
 keys.txt
+
+# News-discovered tickers (auto-managed locally, not shared via git)
+news_discovered.txt
 # keys.py is safe to commit (it contains no secrets, only reads keys.txt)
 
 # Price data cache (large binary files, regenerated on first run)
