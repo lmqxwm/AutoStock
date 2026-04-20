@@ -64,14 +64,17 @@ pip install -r requirements.txt
 
 ### 2. API keys
 
-Four services are used. All have free tiers sufficient for daily use.
+Five services are used. All have free tiers sufficient for daily use.
 
 | Service | Used for | Free limit | Sign up |
 |---|---|---|---|
-| **Finnhub** | Ticker validation | 60 req/min | [finnhub.io](https://finnhub.io) |
+| **Finnhub** | Ticker validation + company news | 60 req/min | [finnhub.io](https://finnhub.io) |
 | **Marketaux** | Financial news articles | 100 req/day | [marketaux.com](https://www.marketaux.com) |
 | **Google Gemini** | LLM extraction from news | 1 500 req/day | [aistudio.google.com](https://aistudio.google.com/app/apikey) — key starts with `AIzaSy` |
 | **Groq** | LLM fallback if Gemini unavailable | ~14 400 req/day free | [console.groq.com](https://console.groq.com) |
+| **Twelve Data** | OHLCV fallback if yfinance rate-limited | 800 req/day | [twelvedata.com](https://twelvedata.com) — optional |
+
+> **Twelve Data** is optional. On a normal once-per-day run yfinance handles all ~350 tickers in a single batch with no issues. Twelve Data only activates automatically when yfinance silently drops a ticker due to a transient rate limit — it fetches the missing bars and the run continues without interruption.
 
 Copy `keys_template.txt` to `keys.txt` and fill in your keys. `keys.txt` is gitignored and never committed.
 
@@ -85,8 +88,9 @@ Alternatively, set environment variables (takes priority over `keys.txt`):
 ```bash
 export FINNHUB_API_KEY="your_key"
 export MARKETAUX_API_KEY="your_key"
-export GEMINI_API_KEY="your_key"   # must start with AIzaSy
+export GEMINI_API_KEY="your_key"      # must start with AIzaSy
 export GROQ_API_KEY="your_key"
+export TWELVE_DATA_API_KEY="your_key" # optional — OHLCV fallback
 ```
 
 ---
@@ -102,6 +106,9 @@ jupyter notebook daily_run.ipynb
 Run cells top to bottom. The `manually_added` / `manually_removed` cell lets you adjust
 the ticker universe for that session without touching any file.
 
+Set `SIM_DATE = "2026-04-17"` in the first config cell to simulate any past trading day
+using cached data (no download, no news calls).
+
 ### Option B — Command line (recommended for daily automation)
 
 ```bash
@@ -116,6 +123,9 @@ python run_daily.py --add PLTR ARM IONQ --remove LCID
 
 # Print full indicator table for specific tickers after running
 python run_daily.py --inspect NVDA AVGO AAPL
+
+# Simulate a past trading day (uses cached data, no download or news)
+python run_daily.py --date 2026-04-17
 
 # Re-download full 2-year history for all tickers
 python run_daily.py --force-download
