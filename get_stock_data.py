@@ -16,6 +16,7 @@ ATR14
 """
 
 import logging
+import time
 import warnings
 from pathlib import Path
 from datetime import datetime, timedelta, date, timezone
@@ -293,8 +294,12 @@ def update_all_stocks(symbols: list[str],
             results[sym] = df
 
     # ── Download, merge, recompute ────────────────────────────────────────────
+    GROUP_PAUSE = 2   # seconds between groups — avoids yfinance 429s on multi-group runs;
+                      # on a normal daily run there is only 1 group, so no delay at all.
     total_groups = len(start_date_groups)
     for g_idx, (start_str, group_syms) in enumerate(start_date_groups.items(), 1):
+        if g_idx > 1:
+            time.sleep(GROUP_PAUSE)
         logger.info(
             f"  Download group {g_idx}/{total_groups}: "
             f"{len(group_syms)} tickers from {start_str} …"
