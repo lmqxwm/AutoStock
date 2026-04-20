@@ -16,7 +16,6 @@ ATR14
 """
 
 import logging
-import time
 import warnings
 import requests
 from pathlib import Path
@@ -30,10 +29,6 @@ import numpy as np
 import pandas as pd
 import yfinance as yf
 
-try:
-    from yfinance.exceptions import YFRateLimitError
-except ImportError:
-    YFRateLimitError = Exception   # older yfinance — match on name below
 
 warnings.filterwarnings("ignore", category=FutureWarning)
 logging.basicConfig(level=logging.INFO,
@@ -222,39 +217,6 @@ def _batches(lst: list, size: int):
         yield lst[i : i + size]
 
 
-# ── Single-ticker retry (rate-limit recovery) ─────────────────────────────────
-
-RATE_LIMIT_RETRY_DELAYS = [10, 30]   # seconds before each retry attempt
-
-def _fetch_single_with_retry(symbol: str, start: str, end: str) -> pd.DataFrame | None:
-    """
-    Download one ticker via yf.Ticker().history() — raises YFRateLimitError
-    explicitly (unlike yf.download() which swallows it), so we can retry with
-    controlled backoff.  Returns None if all attempts fail.
-    """
-    for attempt, delay in enumerate([0] + RATE_LIMIT_RETRY_DELAYS):
-        if delay:
-            logger.warning(f"    Rate-limited on {symbol} — waiting {delay}s before retry {attempt}/{len(RATE_LIMIT_RETRY_DELAYS)} …")
-            time.sleep(delay)
-        try:
-            df = yf.Ticker(symbol).history(start=start, end=end, auto_adjust=True)
-            if df is None or df.empty:
-                return None
-            # Normalise columns to match _yf_batch output
-            df = df.rename(columns={"Stock Splits": "Splits", "Dividends": "Divs"})
-            df = df[[c for c in OHLCV if c in df.columns]]
-            if not all(c in df.columns for c in OHLCV):
-                return None
-            df.index = pd.to_datetime(df.index, utc=True)
-            df.index.name = "Date"
-            return df
-        except Exception as e:
-            if "RateLimit" in type(e).__name__ or "rate" in str(e).lower():
-                if attempt < len(RATE_LIMIT_RETRY_DELAYS):
-                    continue   # try again after delay
-            logger.debug(f"  {symbol} single-fetch failed: {e}")
-            return None
-    return None
 
 
 # ── Twelve Data fallback ──────────────────────────────────────────────────────
@@ -408,38 +370,22 @@ def update_all_stocks(symbols: list[str],
         for batch in _batches(group_syms, BATCH_SIZE):
             new_data = _yf_batch(batch, start=start_str, end=end_str)
 
-            # ── Rate-limit recovery ───────────────────────────────────────────
-            # yf.download() swallows YFRateLimitError and returns nothing.
-            # A ticker with cached history that returned no new bars was almost
-            # certainly rate-limited (not delisted).  Two-stage recovery:
-            #   1. Retry individually via yf.Ticker().history() with backoff
-            #      (raises the exception explicitly → controlled retry).
-            #   2. If yfinance is still rate-limiting, fall back to Twelve Data
-            #      (800 req/day free, same-day data after close).
-            need_retry = [
+            # ── Twelve Data fallback for rate-limited tickers ─────────────────
+            # yf.download() swallows YFRateLimitError and silently returns
+            # nothing.  A ticker with cached history that returned no new bars
+            # was almost certainly rate-limited (not delisted) — fetch from
+            # Twelve Data instead (800 req/day free, same-day data after close).
+            need_fallback = [
                 sym for sym in batch
                 if sym not in new_data and _load(sym) is not None
             ]
-            if need_retry:
+            if need_fallback:
                 logger.warning(
-                    f"  {len(need_retry)} ticker(s) got no data from yfinance "
-                    f"(likely rate-limited) — retrying individually: {need_retry}"
+                    f"  {len(need_fallback)} ticker(s) got no data from yfinance "
+                    f"(likely rate-limited) — trying Twelve Data: {need_fallback}"
                 )
-                still_missing = []
-                for sym in need_retry:
-                    df_single = _fetch_single_with_retry(sym, start=start_str, end=end_str)
-                    if df_single is not None and not df_single.empty:
-                        new_data[sym] = df_single
-                    else:
-                        still_missing.append(sym)
-
-                if still_missing:
-                    logger.warning(
-                        f"  yfinance retry exhausted for {still_missing} — "
-                        f"trying Twelve Data fallback …"
-                    )
-                    td_data = _twelvedata_fallback(still_missing, start=start_str, end=end_str)
-                    new_data.update(td_data)
+                td_data = _twelvedata_fallback(need_fallback, start=start_str, end=end_str)
+                new_data.update(td_data)
 
             for sym in batch:
                 new_bars = new_data.get(sym)
