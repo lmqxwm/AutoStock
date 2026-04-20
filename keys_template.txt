@@ -3,12 +3,15 @@
 # keys.txt is gitignored and will never be committed.
 #
 # Get keys here (all free tiers available):
-#   Finnhub  : https://finnhub.io
-#   Marketaux: https://www.marketaux.com
-#   Gemini   : https://aistudio.google.com/app/apikey  (key starts with AIzaSy...)
-#   Groq     : https://console.groq.com  (free, fast, good fallback for Gemini)
+#   Finnhub       : https://finnhub.io
+#   Marketaux     : https://www.marketaux.com
+#   Gemini        : https://aistudio.google.com/app/apikey  (key starts with AIzaSy...)
+#   Groq          : https://console.groq.com  (free, fast, good fallback for Gemini)
+#   Twelve Data   : https://twelvedata.com    (800 req/day free — OHLCV fallback when
+#                                              yfinance is rate-limited; optional)
 
 FINNHUB_API_KEY=your_finnhub_key_here
 GEMINI_API_KEY=your_gemini_key_here
 MARKETAUX_API_KEY=your_marketaux_key_here
 GROQ_API_KEY=your_groq_key_here
+TWELVE_DATA_API_KEY=your_twelvedata_key_here

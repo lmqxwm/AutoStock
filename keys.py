@@ -7,6 +7,7 @@ keys.txt format (one per line):
     GEMINI_API_KEY=your_key_here
     MARKETAUX_API_KEY=your_key_here
     GROQ_API_KEY=your_key_here
+    TWELVE_DATA_API_KEY=your_key_here
 """
 import os
 from pathlib import Path
@@ -34,7 +35,8 @@ def get(name: str, default: str = "") -> str:
     return os.environ.get(name) or _store.get(name, default)
 
 
-FINNHUB_API_KEY = get("FINNHUB_API_KEY")
-GEMINI_API_KEY  = get("GEMINI_API_KEY")
-MARKETAUX_KEY   = get("MARKETAUX_API_KEY")
-GROQ_API_KEY    = get("GROQ_API_KEY")
+FINNHUB_API_KEY     = get("FINNHUB_API_KEY")
+GEMINI_API_KEY      = get("GEMINI_API_KEY")
+MARKETAUX_KEY       = get("MARKETAUX_API_KEY")
+GROQ_API_KEY        = get("GROQ_API_KEY")
+TWELVE_DATA_API_KEY = get("TWELVE_DATA_API_KEY")

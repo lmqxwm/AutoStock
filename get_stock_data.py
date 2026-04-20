@@ -18,6 +18,7 @@ ATR14
 import logging
 import time
 import warnings
+import requests
 from pathlib import Path
 from datetime import datetime, timedelta, date, timezone
 from collections import defaultdict
@@ -256,6 +257,68 @@ def _fetch_single_with_retry(symbol: str, start: str, end: str) -> pd.DataFrame 
     return None
 
 
+# ── Twelve Data fallback ──────────────────────────────────────────────────────
+
+TWELVE_DATA_BASE = "https://api.twelvedata.com"
+
+def _twelvedata_fallback(symbols: list[str], start: str, end: str) -> dict[str, pd.DataFrame]:
+    """
+    Fetch daily OHLCV from Twelve Data for tickers that both yf.download() and
+    the per-ticker yfinance retry could not deliver.
+
+    Free tier: 800 API credits/day (1 credit per call).  Provides same-day
+    closing data once the US market has closed — identical latency to yfinance.
+    Sign up at https://twelvedata.com and add TWELVE_DATA_API_KEY to keys.txt.
+
+    Skipped silently if no key is configured.
+    """
+    try:
+        from keys import TWELVE_DATA_API_KEY as key
+    except Exception:
+        key = ""
+    if not key:
+        logger.debug("TWELVE_DATA_API_KEY not set — skipping Twelve Data fallback.")
+        return {}
+
+    results: dict[str, pd.DataFrame] = {}
+    for sym in symbols:
+        try:
+            r = requests.get(
+                f"{TWELVE_DATA_BASE}/time_series",
+                params={
+                    "symbol":    sym,
+                    "interval":  "1day",
+                    "start_date": start,
+                    "end_date":   end,
+                    "outputsize": 60,          # enough for any incremental window
+                    "apikey":    key,
+                    "format":    "JSON",
+                },
+                timeout=10,
+            )
+            r.raise_for_status()
+            data = r.json()
+            if data.get("status") == "error" or "values" not in data:
+                logger.debug(f"Twelve Data: {sym} → {data.get('message','no data')}")
+                continue
+            df = pd.DataFrame(data["values"])           # newest bar first
+            df.index = pd.to_datetime(df["datetime"], utc=True)
+            df.index.name = "Date"
+            df = df.rename(columns={
+                "open": "Open", "high": "High",
+                "low":  "Low",  "close": "Close", "volume": "Volume",
+            })
+            df = df[OHLCV].astype(float).sort_index()
+            df.dropna(how="all", inplace=True)
+            if not df.empty:
+                results[sym] = df
+                logger.info(f"Twelve Data fallback: {len(df)} bars for {sym}.")
+        except Exception as e:
+            logger.debug(f"Twelve Data fallback error for {sym}: {e}")
+
+    return results
+
+
 # ── Update logic ──────────────────────────────────────────────────────────────
 
 def update_all_stocks(symbols: list[str],
@@ -345,12 +408,14 @@ def update_all_stocks(symbols: list[str],
         for batch in _batches(group_syms, BATCH_SIZE):
             new_data = _yf_batch(batch, start=start_str, end=end_str)
 
-            # ── Rate-limit recovery: single-ticker retry with backoff ──────────
+            # ── Rate-limit recovery ───────────────────────────────────────────
             # yf.download() swallows YFRateLimitError and returns nothing.
-            # A ticker with cached history that got no new bars was almost
-            # certainly rate-limited (not delisted).  Retry one-at-a-time via
-            # yf.Ticker().history(), which raises the exception explicitly so we
-            # can back off and retry with controlled delays.
+            # A ticker with cached history that returned no new bars was almost
+            # certainly rate-limited (not delisted).  Two-stage recovery:
+            #   1. Retry individually via yf.Ticker().history() with backoff
+            #      (raises the exception explicitly → controlled retry).
+            #   2. If yfinance is still rate-limiting, fall back to Twelve Data
+            #      (800 req/day free, same-day data after close).
             need_retry = [
                 sym for sym in batch
                 if sym not in new_data and _load(sym) is not None
@@ -360,10 +425,21 @@ def update_all_stocks(symbols: list[str],
                     f"  {len(need_retry)} ticker(s) got no data from yfinance "
                     f"(likely rate-limited) — retrying individually: {need_retry}"
                 )
+                still_missing = []
                 for sym in need_retry:
                     df_single = _fetch_single_with_retry(sym, start=start_str, end=end_str)
                     if df_single is not None and not df_single.empty:
                         new_data[sym] = df_single
+                    else:
+                        still_missing.append(sym)
+
+                if still_missing:
+                    logger.warning(
+                        f"  yfinance retry exhausted for {still_missing} — "
+                        f"trying Twelve Data fallback …"
+                    )
+                    td_data = _twelvedata_fallback(still_missing, start=start_str, end=end_str)
+                    new_data.update(td_data)
 
             for sym in batch:
                 new_bars = new_data.get(sym)
