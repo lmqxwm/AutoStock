@@ -133,10 +133,18 @@ def last_updated(symbol: str) -> datetime | None:
     return None
 
 
-def last_updated_et_date(symbol: str) -> date | None:
-    """Return the most recent bar's date in ET (what matters for skip logic)."""
+def last_updated_utc_date(symbol: str) -> date | None:
+    """Return the most recent bar's date in UTC.
+
+    yfinance labels every daily bar at midnight UTC of the trading day, so the
+    UTC date == the trading-day calendar date.  No timezone conversion needed.
+    """
     lu = last_updated(symbol)
-    return lu.astimezone(ET).date() if lu is not None else None
+    return lu.date() if lu is not None else None
+
+
+# Keep old name as alias so any external callers don't break immediately.
+last_updated_et_date = last_updated_utc_date
 
 
 # ── Batch download ────────────────────────────────────────────────────────────
@@ -301,22 +309,22 @@ def update_all_stocks(symbols: list[str],
     -------
     dict {symbol: full DataFrame with indicators}
     """
-    # Use ET date as the reference — yfinance stores Apr 16 close as
-    # 2026-04-17 00:00 UTC, so .date() in UTC = today, which wrongly skips it.
-    now_et    = datetime.now(tz=ET)
-    today_et  = now_et.date()
+    # yfinance labels every daily bar at midnight UTC of the trading day.
+    # The UTC date is therefore the canonical trading-day date — no ET conversion.
+    now_et   = datetime.now(tz=ET)
+    today_et = now_et.date()          # used only for market-close check below
 
     # If the market has not yet closed (before 4:30 pm ET on a weekday),
     # today's bar from yfinance is incomplete — cap download at yesterday so
     # strategies are always evaluated on full candles only.
     MARKET_CLOSE = now_et.replace(hour=16, minute=30, second=0, microsecond=0)
-    if now_et.weekday() < 5 and now_et < MARKET_CLOSE:   # weekday + before close
-        effective_end = today_et                           # exclude today
+    if now_et.weekday() < 5 and now_et < MARKET_CLOSE:
+        effective_end = today_et                      # exclude today (UTC date = trading day)
         logger.info("Market still open — using yesterday's close as latest bar.")
     else:
-        effective_end = today_et + timedelta(days=1)      # normal: include today
+        effective_end = today_et + timedelta(days=1)  # include today's complete bar
 
-    end_str = effective_end.strftime("%Y-%m-%d")
+    end_str       = effective_end.strftime("%Y-%m-%d")
     default_start = (today_et - timedelta(days=INITIAL_HISTORY_DAYS)).strftime("%Y-%m-%d")
 
     # ── Determine start date per symbol ──────────────────────────────────────
@@ -325,22 +333,15 @@ def update_all_stocks(symbols: list[str],
     skipped = []
     for sym in symbols:
         if not force_full:
-            last_et = last_updated_et_date(sym)   # date in ET, not UTC
-            if last_et is not None and last_et >= today_et:
+            last_date = last_updated_utc_date(sym)   # UTC date == trading day
+            if last_date is not None and last_date >= today_et:
                 skipped.append(sym)
                 continue
-            if last_et is not None:
-                start = (last_et + timedelta(days=1)).strftime("%Y-%m-%d")
+            if last_date is not None:
+                start = (last_date + timedelta(days=1)).strftime("%Y-%m-%d")
             else:
                 start = default_start
-            # Guard: if start >= end the range is empty (ticker is already current —
-            # this happens when last_et is the day before today in ET but the bar's
-            # UTC timestamp is midnight of today, e.g. today's partial intraday bar
-            # stored as 2026-04-20 00:00 UTC → ET-date 2026-04-19 → start 2026-04-20
-            # == end 2026-04-20, which yfinance rejects with a noisy "possibly delisted"
-            # error).  Treat these as already up-to-date; they will re-download after
-            # the market closes when effective_end advances to tomorrow.
-            if start >= end_str:
+            if start >= end_str:   # empty range — already current
                 skipped.append(sym)
                 continue
         else:

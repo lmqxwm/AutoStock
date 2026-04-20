@@ -46,7 +46,7 @@ def run(no_news: bool = False,
 
     import pandas as pd
     import tickers as tickers_mod
-    from get_stock_data import update_all_stocks, get_stock_data, last_updated, last_updated_et_date, _load
+    from get_stock_data import update_all_stocks, get_stock_data, last_updated, last_updated_utc_date, _load
     from strategy import check_all_strategies, STRATEGIES
     from information import run_news_discovery, fetch_finnhub_news
 
@@ -90,7 +90,7 @@ def run(no_news: bool = False,
     print(f"\n[ 3/5 ] Updating price data …")
     needs_update = [
         t for t in all_tickers
-        if (last_updated_et_date(t) or date(2000, 1, 1)) < today
+        if (last_updated_utc_date(t) or date(2000, 1, 1)) < today
     ]
     print(f"        {len(needs_update)} tickers need new bars.")
 
@@ -103,11 +103,10 @@ def run(no_news: bool = False,
             if df is not None and not df.empty:
                 stock_data[t] = df
 
-    # Show the ET calendar date of the last bar — avoids confusing UTC-shifted times
-    # (yfinance timestamps daily bars at midnight UTC, which shows as 8 pm ET of
-    # the prior calendar day and misleads users about which trading day is current).
+    # yfinance labels daily bars at midnight UTC of the trading day, so the
+    # UTC date directly equals the trading-day date — no timezone conversion.
     latest_dates = {
-        sym: df.index.max().astimezone(ET).strftime("%Y-%m-%d (ET)")
+        sym: df.index.max().strftime("%Y-%m-%d")
         for sym, df in stock_data.items()
     }
     overall_latest = max(latest_dates.values()) if latest_dates else "N/A"
