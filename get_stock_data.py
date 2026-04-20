@@ -267,6 +267,16 @@ def update_all_stocks(symbols: list[str],
                 start = (last_et + timedelta(days=1)).strftime("%Y-%m-%d")
             else:
                 start = default_start
+            # Guard: if start >= end the range is empty (ticker is already current —
+            # this happens when last_et is the day before today in ET but the bar's
+            # UTC timestamp is midnight of today, e.g. today's partial intraday bar
+            # stored as 2026-04-20 00:00 UTC → ET-date 2026-04-19 → start 2026-04-20
+            # == end 2026-04-20, which yfinance rejects with a noisy "possibly delisted"
+            # error).  Treat these as already up-to-date; they will re-download after
+            # the market closes when effective_end advances to tomorrow.
+            if start >= end_str:
+                skipped.append(sym)
+                continue
         else:
             start = default_start
         start_date_groups[start].append(sym)
