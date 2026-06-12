@@ -236,12 +236,13 @@ def _twelvedata_fallback(symbols: list[str], start: str, end: str) -> dict[str, 
     Fetch daily OHLCV from Twelve Data for tickers that both yf.download() and
     the per-ticker yfinance retry could not deliver.
 
-    Free tier: 800 API credits/day (1 credit per call).  Provides same-day
-    closing data once the US market has closed — identical latency to yfinance.
+    Free tier: 800 API credits/day, 8 credits/minute (1 credit per symbol).
+    Provides same-day closing data once the US market has closed.
     Sign up at https://twelvedata.com and add TWELVE_DATA_API_KEY to keys.txt.
 
     Skipped silently if no key is configured.
     """
+    import time as _time
     try:
         from keys import TWELVE_DATA_API_KEY as key
     except Exception:
@@ -250,8 +251,25 @@ def _twelvedata_fallback(symbols: list[str], start: str, end: str) -> dict[str, 
         logger.debug("TWELVE_DATA_API_KEY not set — skipping Twelve Data fallback.")
         return {}
 
+    TD_CREDITS_PER_MIN = 8          # free-tier limit
+    _call_times: list[float] = []   # rolling window of recent call timestamps
+
     results: dict[str, pd.DataFrame] = {}
     for sym in symbols:
+        # ── Rate-limit: max TD_CREDITS_PER_MIN calls per 60 s ────────────────
+        now = _time.monotonic()
+        _call_times = [t for t in _call_times if now - t < 60.0]
+        if len(_call_times) >= TD_CREDITS_PER_MIN:
+            wait = 60.0 - (now - _call_times[0]) + 0.5
+            logger.info(
+                f"  Twelve Data rate limit reached — "
+                f"sleeping {wait:.0f}s ({len(results)} fetched so far) …"
+            )
+            _time.sleep(wait)
+            _call_times = [t for t in _call_times if _time.monotonic() - t < 60.0]
+
+        _call_times.append(_time.monotonic())
+        # ─────────────────────────────────────────────────────────────────────
         try:
             r = requests.get(
                 f"{TWELVE_DATA_BASE}/time_series",
@@ -269,7 +287,7 @@ def _twelvedata_fallback(symbols: list[str], start: str, end: str) -> dict[str, 
             r.raise_for_status()
             data = r.json()
             if data.get("status") == "error" or "values" not in data:
-                logger.debug(f"Twelve Data: {sym} → {data.get('message','no data')}")
+                logger.warning(f"Twelve Data: {sym} → {data.get('message','no data')}")
                 continue
             df = pd.DataFrame(data["values"])           # newest bar first
             df.index = pd.to_datetime(df["datetime"], utc=True)
