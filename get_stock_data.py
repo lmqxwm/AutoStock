@@ -285,14 +285,26 @@ def _twelvedata_fallback(symbols: list[str], start: str, end: str) -> dict[str, 
                     },
                     timeout=10,
                 )
-                r.raise_for_status()
+                # Parse JSON before raising — 429 responses carry useful info.
+                # Only raise for unexpected server errors (5xx etc.).
                 data = r.json()
+                if r.status_code not in (200, 429):
+                    r.raise_for_status()
 
-                # Server-side rate-limit — call was rejected, no credit used.
-                # Sleep a full minute, clear our window, then retry this ticker.
-                if "run out of API credits" in data.get("message", ""):
+                msg = data.get("message", "")
+
+                # Daily limit exhausted — stop immediately, no point retrying.
+                if "for the day" in msg:
+                    logger.warning(
+                        f"  Twelve Data DAILY limit exhausted ({msg}). "
+                        f"Stopping fallback for today."
+                    )
+                    return results
+
+                # Per-minute rate-limit — sleep a full minute and retry.
+                if "for the current minute" in msg or r.status_code == 429:
                     logger.info(
-                        f"  Twelve Data server-side rate-limit (attempt {attempt+1}/3) — "
+                        f"  Twelve Data per-minute rate-limit (attempt {attempt+1}/3) — "
                         f"sleeping 65s ({len(results)} fetched so far) …"
                     )
                     _time.sleep(65)
@@ -300,8 +312,8 @@ def _twelvedata_fallback(symbols: list[str], start: str, end: str) -> dict[str, 
                     continue                    # retry same ticker
 
                 if data.get("status") == "error" or "values" not in data:
-                    logger.warning(f"Twelve Data: {sym} → {data.get('message','no data')}")
-                    break                       # non-rate-limit error — skip ticker
+                    logger.warning(f"Twelve Data: {sym} → {msg or 'no data'}")
+                    break                       # other error — skip ticker
 
                 # Success — count the credit now
                 _call_times.append(_time.monotonic())
