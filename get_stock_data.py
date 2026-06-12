@@ -253,9 +253,15 @@ def _twelvedata_fallback(symbols: list[str], start: str, end: str) -> dict[str, 
 
     TD_CREDITS_PER_MIN = 8          # free-tier limit
     _call_times: list[float] = []   # timestamps of ACCEPTED calls (credits used)
+    _daily_limit_hit = False        # stop API calls once daily cap is confirmed
 
     results: dict[str, pd.DataFrame] = {}
     for sym in symbols:
+        # Daily limit already confirmed this run — no point making more calls.
+        # update_all_stocks will load stale cached data for any sym not in results.
+        if _daily_limit_hit:
+            continue
+
         # ── Proactive rate-limit: wait if we've used TD_CREDITS_PER_MIN in last 60 s
         # Only accepted calls are counted — rejected calls don't consume credits.
         now = _time.monotonic()
@@ -293,13 +299,16 @@ def _twelvedata_fallback(symbols: list[str], start: str, end: str) -> dict[str, 
 
                 msg = data.get("message", "")
 
-                # Daily limit exhausted — stop immediately, no point retrying.
+                # Daily limit exhausted — flag it, skip remaining symbols, but
+                # let update_all_stocks load stale cached data for all of them.
                 if "for the day" in msg:
+                    _daily_limit_hit = True
+                    remaining = len(symbols) - symbols.index(sym) - 1
                     logger.warning(
-                        f"  Twelve Data DAILY limit exhausted ({msg}). "
-                        f"Stopping fallback for today."
+                        f"  Twelve Data DAILY limit exhausted — {len(results)} fetched, "
+                        f"{remaining} ticker(s) will use cached data. Resets at midnight UTC."
                     )
-                    return results
+                    break
 
                 # Per-minute rate-limit — sleep a full minute and retry.
                 if "for the current minute" in msg or r.status_code == 429:
