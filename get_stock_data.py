@@ -252,11 +252,12 @@ def _twelvedata_fallback(symbols: list[str], start: str, end: str) -> dict[str, 
         return {}
 
     TD_CREDITS_PER_MIN = 8          # free-tier limit
-    _call_times: list[float] = []   # rolling window of recent call timestamps
+    _call_times: list[float] = []   # timestamps of ACCEPTED calls (credits used)
 
     results: dict[str, pd.DataFrame] = {}
     for sym in symbols:
-        # ── Rate-limit: max TD_CREDITS_PER_MIN calls per 60 s ────────────────
+        # ── Proactive rate-limit: wait if we've used TD_CREDITS_PER_MIN in last 60 s
+        # Only accepted calls are counted — rejected calls don't consume credits.
         now = _time.monotonic()
         _call_times = [t for t in _call_times if now - t < 60.0]
         if len(_call_times) >= TD_CREDITS_PER_MIN:
@@ -267,42 +268,60 @@ def _twelvedata_fallback(symbols: list[str], start: str, end: str) -> dict[str, 
             )
             _time.sleep(wait)
             _call_times = [t for t in _call_times if _time.monotonic() - t < 60.0]
-
-        _call_times.append(_time.monotonic())
         # ─────────────────────────────────────────────────────────────────────
-        try:
-            r = requests.get(
-                f"{TWELVE_DATA_BASE}/time_series",
-                params={
-                    "symbol":    sym,
-                    "interval":  "1day",
-                    "start_date": start,
-                    "end_date":   end,
-                    "outputsize": 60,          # enough for any incremental window
-                    "apikey":    key,
-                    "format":    "JSON",
-                },
-                timeout=10,
-            )
-            r.raise_for_status()
-            data = r.json()
-            if data.get("status") == "error" or "values" not in data:
-                logger.warning(f"Twelve Data: {sym} → {data.get('message','no data')}")
-                continue
-            df = pd.DataFrame(data["values"])           # newest bar first
-            df.index = pd.to_datetime(df["datetime"], utc=True)
-            df.index.name = "Date"
-            df = df.rename(columns={
-                "open": "Open", "high": "High",
-                "low":  "Low",  "close": "Close", "volume": "Volume",
-            })
-            df = df[OHLCV].astype(float).sort_index()
-            df.dropna(how="all", inplace=True)
-            if not df.empty:
-                results[sym] = df
-                logger.info(f"Twelve Data fallback: {len(df)} bars for {sym}.")
-        except Exception as e:
-            logger.debug(f"Twelve Data fallback error for {sym}: {e}")
+
+        for attempt in range(3):
+            try:
+                r = requests.get(
+                    f"{TWELVE_DATA_BASE}/time_series",
+                    params={
+                        "symbol":    sym,
+                        "interval":  "1day",
+                        "start_date": start,
+                        "end_date":   end,
+                        "outputsize": 60,      # enough for any incremental window
+                        "apikey":    key,
+                        "format":    "JSON",
+                    },
+                    timeout=10,
+                )
+                r.raise_for_status()
+                data = r.json()
+
+                # Server-side rate-limit — call was rejected, no credit used.
+                # Sleep a full minute, clear our window, then retry this ticker.
+                if "run out of API credits" in data.get("message", ""):
+                    logger.info(
+                        f"  Twelve Data server-side rate-limit (attempt {attempt+1}/3) — "
+                        f"sleeping 65s ({len(results)} fetched so far) …"
+                    )
+                    _time.sleep(65)
+                    _call_times.clear()         # server window has fully reset
+                    continue                    # retry same ticker
+
+                if data.get("status") == "error" or "values" not in data:
+                    logger.warning(f"Twelve Data: {sym} → {data.get('message','no data')}")
+                    break                       # non-rate-limit error — skip ticker
+
+                # Success — count the credit now
+                _call_times.append(_time.monotonic())
+                df = pd.DataFrame(data["values"])    # newest bar first
+                df.index = pd.to_datetime(df["datetime"], utc=True)
+                df.index.name = "Date"
+                df = df.rename(columns={
+                    "open": "Open", "high": "High",
+                    "low":  "Low",  "close": "Close", "volume": "Volume",
+                })
+                df = df[OHLCV].astype(float).sort_index()
+                df.dropna(how="all", inplace=True)
+                if not df.empty:
+                    results[sym] = df
+                    logger.info(f"Twelve Data fallback: {len(df)} bars for {sym}.")
+                break
+
+            except Exception as e:
+                logger.debug(f"Twelve Data fallback error for {sym}: {e}")
+                break
 
     return results
 
